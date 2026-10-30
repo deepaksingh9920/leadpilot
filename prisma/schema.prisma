@@ -1,0 +1,487 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity and tenancy
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  emailVerifiedAt DateTime?
+  isSuperAdmin    Boolean   @default(false)
+  disabledAt      DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions         Session[]
+  memberships      Membership[]
+  ownedWorkspaces  Workspace[]       @relation("WorkspaceOwner")
+  invitesSent      Invite[]          @relation("InviteSender")
+  ownedLeads       Lead[]            @relation("LeadOwner")
+  leadActivities   LeadActivity[]
+  campaignsCreated Campaign[]        @relation("CampaignCreator")
+  outreachCreated  OutreachMessage[] @relation("OutreachCreator")
+  outreachApproved OutreachMessage[] @relation("OutreachApprover")
+  auditLogs        AuditLog[]
+  emailTokens      EmailToken[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Workspace {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  ownerId     String
+  owner       User      @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  onboardedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  memberships        Membership[]
+  invites            Invite[]
+  profile            BusinessProfile?
+  subscription       Subscription?
+  usageCounters      UsageCounter[]
+  agentConfigs       AgentConfig[]
+  integrations       Integration[]
+  leadSources        LeadSource[]
+  leads              Lead[]
+  campaigns          Campaign[]
+  outreachMessages   OutreachMessage[]
+  suppressionEntries SuppressionEntry[]
+  auditLogs          AuditLog[]
+
+  @@index([ownerId])
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("MEMBER") // OWNER | ADMIN | MEMBER | VIEWER
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  role        String    @default("MEMBER")
+  tokenHash   String    @unique
+  invitedById String?
+  invitedBy   User?     @relation("InviteSender", fields: [invitedById], references: [id], onDelete: SetNull)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, email])
+}
+
+model EmailToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // VERIFY_EMAIL | RESET_PASSWORD
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, type])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Commercial configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Plan {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  name         String
+  description  String
+  monthlyPrice Int      @default(0) // USD cents
+  yearlyPrice  Int      @default(0) // USD cents, billed annually
+  currency     String   @default("USD")
+  isPublic     Boolean  @default(true)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  limits        PlanLimit[]
+  agents        PlanAgent[]
+  subscriptions Subscription[]
+}
+
+model PlanLimit {
+  id     String @id @default(cuid())
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  metric String // leads_per_month | agent_runs_per_month | seats | workspaces | sends_per_day | exports_per_month
+  limit  Int
+
+  @@unique([planId, metric])
+}
+
+model PlanAgent {
+  planId   String
+  plan     Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  agentKey String
+  agent    AgentDefinition @relation(fields: [agentKey], references: [key], onDelete: Cascade)
+
+  @@id([planId, agentKey])
+}
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  workspaceId            String    @unique
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  planId                 String
+  plan                   Plan      @relation(fields: [planId], references: [id])
+  status                 String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELED | TRIALING
+  provider               String    @default("stripe")
+  providerSubscriptionId String?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([planId])
+}
+
+model UsageCounter {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metric      String
+  periodStart DateTime
+  used        Int       @default(0)
+
+  @@unique([workspaceId, metric, periodStart])
+  @@index([workspaceId, metric])
+}
+
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  externalEventId String
+  payload         String
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([provider, externalEventId])
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Business profile and agent configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BusinessProfile {
+  id                  String    @id @default(cuid())
+  workspaceId         String    @unique
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  companyName         String
+  website             String?
+  industry            String?
+  companySize         String?
+  description         String?
+  regions             String? // comma-separated
+  targetCustomerTypes String? // comma-separated
+  budgetMin           Int?
+  budgetMax           Int?
+  valueProposition    String?
+  phone               String?
+  senderName          String?
+  senderEmail         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model AgentDefinition {
+  key             String   @id
+  name            String
+  slug            String   @unique
+  description     String
+  category        String
+  stage           String
+  icon            String
+  creditCost      Int      @default(1)
+  requiresApproval Boolean @default(false)
+  inputSchema     String   @default("{}")
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  configs AgentConfig[]
+  plans   PlanAgent[]
+}
+
+model AgentConfig {
+  id          String          @id @default(cuid())
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentKey    String
+  agent       AgentDefinition @relation(fields: [agentKey], references: [key], onDelete: Cascade)
+  enabled     Boolean         @default(true)
+  settings    String          @default("{}")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([workspaceId, agentKey])
+}
+
+model Integration {
+  id                   String    @id @default(cuid())
+  workspaceId          String
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider             String // AI | LEAD_SOURCE | EMAIL | BILLING
+  status               String    @default("NOT_CONFIGURED")
+  accountLabel         String?
+  encryptedCredentials String?
+  lastCheckedAt        DateTime?
+  error                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([workspaceId, provider])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Leads and campaigns
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LeadSource {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    String // apollo | pdl | google_places | csv | manual
+  type        String // API | CSV | MANUAL
+  name        String
+  licenseNote String?
+  termsUrl    String?
+  lastSyncedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  leads Lead[]
+
+  @@index([workspaceId])
+}
+
+model Lead {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  companyName        String
+  domain             String?
+  industry           String?
+  location           String?
+  employeeCount      Int?
+  revenueBand        String?
+  description        String?
+  website            String?
+  contactName        String?
+  contactTitle       String?
+  contactEmail       String?
+  contactPhone       String?
+  linkedinUrl        String?
+  sourceId           String?
+  source             LeadSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceRecordId     String?
+  sourceUrl          String?
+  retrievedAt        DateTime?
+  verificationStatus String    @default("UNVERIFIED") // UNVERIFIED | PARTIAL | VERIFIED
+  score              Int       @default(0)
+  scoreReasons       String    @default("[]") // JSON array
+  status             String    @default("NEW")
+  ownerId            String?
+  owner              User?     @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  tags               String    @default("[]") // JSON array
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  verifications    LeadFieldVerification[]
+  activities       LeadActivity[]
+  campaignLeads    CampaignLead[]
+  outreachMessages OutreachMessage[]
+
+  @@unique([workspaceId, sourceId, sourceRecordId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, contactEmail])
+  @@index([sourceId])
+}
+
+model LeadFieldVerification {
+  id        String    @id @default(cuid())
+  leadId    String
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  field     String
+  status    String // UNVERIFIED | PARTIAL | VERIFIED
+  sourceUrl String?
+  checkedAt DateTime  @default(now())
+  note      String?
+
+  @@unique([leadId, field])
+}
+
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  type      String
+  detail    String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model Campaign {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name          String
+  goal          String?
+  status        String    @default("DRAFT") // DRAFT | ACTIVE | PAUSED | COMPLETED
+  dailySendCap  Int       @default(50)
+  createdById   String
+  createdBy     User      @relation("CampaignCreator", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  leads    CampaignLead[]
+  messages OutreachMessage[]
+
+  @@index([workspaceId, status])
+}
+
+model CampaignLead {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stage      String   @default("ADDED")
+  addedAt    DateTime @default(now())
+
+  @@unique([campaignId, leadId])
+  @@index([leadId])
+}
+
+model OutreachMessage {
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaignId             String?
+  campaign               Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  leadId                 String
+  lead                   Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdById            String
+  createdBy              User      @relation("OutreachCreator", fields: [createdById], references: [id])
+  subject                String
+  body                   String
+  status                 String    @default("DRAFT") // DRAFT | APPROVED | SCHEDULED | SENT | FAILED | CANCELLED
+  approvedById           String?
+  approvedBy             User?     @relation("OutreachApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt             DateTime?
+  scheduledFor           DateTime?
+  sentAt                 DateTime?
+  providerMessageId      String?
+  unsubscribeTokenHash   String?
+  failureReason          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([leadId])
+  @@index([campaignId])
+}
+
+model SuppressionEntry {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email           String
+  normalizedEmail String
+  reason          String // UNSUBSCRIBED | BOUNCED | COMPLAINT | MANUAL
+  source          String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([workspaceId, normalizedEmail])
+  @@index([workspaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit, rate limiting, observability
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  actorId     String?
+  actor       User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String?
+  entityId    String?
+  metadata    String    @default("{}")
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action])
+}
+
+model RateLimitBucket {
+  id          String   @id @default(cuid())
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@unique([key, windowStart])
+  @@index([windowStart])
+}
