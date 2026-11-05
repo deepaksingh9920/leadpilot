@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarClock, CheckCircle2, Send, ShieldCheck } from "lucide-react";
+import { CalendarClock, CheckCircle2, Plus, Send, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
@@ -37,15 +37,21 @@ export default async function CampaignsPage() {
             approval before it can leave the workspace.
           </p>
         </div>
-        <Link href="/agents" className={buttonClasses({ variant: "secondary", size: "sm" })}>
-          <Send className="size-4" aria-hidden="true" />
-          Outreach agents
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/campaigns/new" className={buttonClasses({ size: "sm" })}>
+            <Plus className="size-4" aria-hidden="true" />
+            New campaign
+          </Link>
+          <Link href="/agents" className={buttonClasses({ variant: "secondary", size: "sm" })}>
+            <Send className="size-4" aria-hidden="true" />
+            Outreach agents
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         {[
-          { label: "Active campaigns", value: active, hint: "Currently sending approved mail" },
+          { label: "Active campaigns", value: active, hint: "Activated for outreach" },
           { label: "Drafts", value: draft, hint: "Not yet activated" },
           { label: "Total campaigns", value: campaigns.length, hint: "All time in this workspace" },
         ].map((stat) => (
@@ -83,10 +89,14 @@ export default async function CampaignsPage() {
               No campaigns yet
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted">
-              Campaigns will appear here when the outreach phase is enabled and you create one
-              from qualified leads. No example campaigns are created for you.
+              Create a campaign, then add qualified leads from your workspace. No example
+              campaigns are created for you.
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Link href="/campaigns/new" className={buttonClasses({ size: "sm" })}>
+                <Plus className="size-4" aria-hidden="true" />
+                Create your first campaign
+              </Link>
               <Link href="/leads" className={buttonClasses({ variant: "secondary", size: "sm" })}>
                 Browse leads
               </Link>
@@ -104,7 +114,12 @@ export default async function CampaignsPage() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-ink">{campaign.name}</p>
+                    <Link
+                      href={`/campaigns/${campaign.id}`}
+                      className="truncate text-sm font-semibold text-ink hover:text-brand hover:underline"
+                    >
+                      {campaign.name}
+                    </Link>
                     <Badge tone={STATUS_TONES[campaign.status] ?? "neutral"}>
                       {campaign.status}
                     </Badge>
@@ -117,6 +132,12 @@ export default async function CampaignsPage() {
                 <div className="flex items-center gap-2 text-[11px] text-muted">
                   <CalendarClock className="size-3.5" aria-hidden="true" />
                   Daily cap {campaign.dailySendCap}
+                  <Link
+                    href={`/campaigns/${campaign.id}`}
+                    className="ml-2 font-semibold text-brand hover:underline"
+                  >
+                    Open
+                  </Link>
                 </div>
               </li>
             ))}
@@ -143,9 +164,9 @@ export default async function CampaignsPage() {
             Current status
           </h2>
           <p className="mt-3 text-[12px] leading-relaxed text-muted">
-            Campaign creation and message scheduling are part of the outreach phase. The
-            approval gate and audit plumbing are already modelled, so nothing can be sent by
-            accident while those features are inactive.
+            Campaign creation, lead assignment, status, and daily caps are live. Sending is not:
+            it requires a configured email provider, approval, and unsubscribe handling, which
+            ship with the outreach phase. Nothing can be sent by accident.
           </p>
           <Link
             href="/integrations"

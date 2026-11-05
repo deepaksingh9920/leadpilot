@@ -10,11 +10,13 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
+import { getAgentStatus } from "@/server/services/providers";
 import { toggleAgentAction } from "@/server/actions/agents";
 
 export const metadata = { title: "Agents" };
@@ -85,6 +87,7 @@ export default async function AgentsPage() {
           const included = allowed.has(agent.key);
           const config = configMap.get(agent.key);
           const enabled = included && Boolean(config?.enabled);
+          const runtime = getAgentStatus(agent.key);
 
           return (
             <Card key={agent.key} className="flex flex-col p-5">
@@ -125,6 +128,25 @@ export default async function AgentsPage() {
                 </div>
               </dl>
 
+              <div className="mt-2 flex items-center justify-between text-[11px]">
+                <span className="text-muted">Runtime</span>
+                <Badge
+                  tone={
+                    runtime.runnable
+                      ? "success"
+                      : runtime.code === "PROVIDER_MISSING"
+                        ? "warning"
+                        : "outline"
+                  }
+                >
+                  {runtime.runnable
+                    ? "Ready"
+                    : runtime.code === "PROVIDER_MISSING"
+                      ? "Provider missing"
+                      : "Runtime pending"}
+                </Badge>
+              </div>
+
               <div className="mt-4">
                 {!included ? (
                   <div className="rounded-xl bg-canvas px-3 py-2.5 text-[11px] leading-relaxed text-muted">
@@ -159,6 +181,13 @@ export default async function AgentsPage() {
                   </div>
                 )}
               </div>
+
+              <Link
+                href={`/agents/${agent.slug}`}
+                className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-brand hover:underline"
+              >
+                View details and runs
+              </Link>
             </Card>
           );
         })}

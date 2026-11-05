@@ -4,11 +4,12 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 2 complete.** The workspace, authentication, onboarding, plan limits,
-> admin configuration, and the full product UI are implemented and verified. Live agent
-> execution, lead-source connectors, email delivery, and billing activate in later phases
-> and are switched off until their provider credentials are configured. LeadPilot never
-> fabricates leads, contact details, company facts, or sources.
+> **Status: Phase 3 complete.** Workspace, authentication, onboarding, plan limits, admin
+> configuration, lead management (CSV import, dedupe, provenance, export), campaign
+> scaffolding, and the queue/worker job system are implemented and verified. Live agent
+> adapters, lead-source connectors, email delivery, and billing activate in later phases
+> and stay off until their provider credentials are configured. LeadPilot never fabricates
+> leads, contact details, company facts, or sources.
 
 ## Stack
 
@@ -65,6 +66,10 @@ implemented:
 - `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` — permitted lead sources.
 - `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery.
 - `STRIPE_*` — subscription checkout and plan changes.
+- `WORKER_SECRET` — authenticates `POST /api/worker/run`; the endpoint returns 503 while
+  it is unset.
+- `AGENT_RUNTIME_READY` — must stay `false` until the Phase 4 adapters exist; it gates all
+  job execution.
 
 The app reports each provider's real configuration state on **Integrations**; it never
 falls back to demo data.
@@ -91,7 +96,7 @@ falls back to demo data.
 | `npm run start` | Serve the production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Vitest (unit tests) |
+| `npm run test` | Vitest (unit + database integration tests) |
 | `npm run db:migrate` | Create/apply a Prisma migration |
 | `npm run db:seed` | Seed plans, agents, and bootstrap admin |
 | `npm run db:studio` | Open Prisma Studio |
@@ -110,9 +115,21 @@ when no provider is configured.
 profile used as ground truth for later agent work and unlocks the dashboard on completion.
 
 **Workspace** — responsive shell with workspace switcher, dashboard stats and 30-day lead
-chart backed by real queries, leads table with filtering/search/pagination, campaigns,
-plan-gated agent toggles, integration status, settings (profile, password, team, usage),
-and a superadmin console for plans, limits, agent catalog, and platform audit.
+chart backed by real queries, searchable/filterable/sortable leads, CSV import with column
+mapping and row-level reports, lead detail with evidence and activity, campaign creation and
+detail, agent catalog and detail with runtime gating, run detail with step logs, integration
+status, settings (profile, password, team, usage), and a superadmin console for plans,
+limits, agent catalog, and platform audit.
+
+**Lead data** — imports require a rights confirmation, re-parse the uploaded file on the
+server, and dedupe by normalized email, then domain, then company + location. Every row keeps
+its source and evidence URL; invalid rows are reported, never repaired or invented. Exports
+include provenance, verification status, and retrieval dates and are limited by plan.
+
+**Jobs** — a secret-protected worker endpoint atomically claims due jobs with a two-minute
+lease, records each step, retries transient failures with backoff, and supports cancellation.
+Runs reserve plan usage up front and refund it on cancellation or permanent failure. Live
+agent execution stays disabled until the Phase 4 adapters exist.
 
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, security headers, and server-side limit checks. No outreach
@@ -120,8 +137,9 @@ can be sent in this build; the approval gate and send plumbing land in later pha
 
 ## Not implemented yet
 
-- Agent runtime and job worker (no agent runs can execute).
-- Lead-source connectors and CSV import.
+- Live agent adapters: the job system, gating, and UI are implemented, but no source or AI
+  provider calls are made until Phase 4.
+- Lead-source connectors (CSV import is available now).
 - Email sending pipeline, suppression list, and outreach approval UI.
 - Stripe checkout, webhooks, and paid plan changes.
 - Team invitations.
@@ -137,8 +155,10 @@ src/
   app/
     (marketing)/     Landing, features, pricing
     (auth)/          Login, signup, reset, verification
-    (app)/           Dashboard, leads, campaigns, agents,
-                     integrations, settings, admin
+    (app)/           Dashboard, leads (import/detail), campaigns
+                     (new/detail), agents, runs, integrations,
+                     settings, admin
+    api/             CSV export and worker endpoints
     onboarding/      Three-step setup wizard
   components/
     app/             Shell, navigation, charts
@@ -148,11 +168,17 @@ src/
     settings/        Settings forms
     ui/              Buttons, inputs, cards, badges, alerts
   lib/
+    agents/          Runtime gating and input schemas
     auth/            Sessions, roles, rate limits, audit
+    jobs/            Queue policy, leases, retry backoff
+    leads/           Import mapping and dedupe
+    csv.ts           CSV parse/serialize
     validation/      Zod schemas
   server/
-    actions/         Server actions (auth, onboarding, agents, settings, admin)
+    actions/         Server actions (auth, onboarding, leads,
+                     imports, campaigns, agents, settings, admin)
     services/        Data access and domain services
+  test/              Throwaway database fixtures
 prisma/
   schema.prisma      Full data model
   seed.ts            Plans, agents, bootstrap admin
@@ -165,7 +191,11 @@ docs/                Architecture, roadmap, compliance, integrations
 npm run test
 ```
 
-Unit tests cover validation, role hierarchy, rate-limit behavior, and formatting helpers.
+Unit tests cover CSV parsing, import mapping and dedupe rules, agent input schemas,
+runtime gating, job policy, validation, role hierarchy, rate-limit behavior, and formatting
+helpers. Database integration tests create a throwaway SQLite database with `prisma db push`
+and exercise the real import and job services, including transactions, unique constraints,
+retries, cancellation, and usage refunds. The suite is **11 files / 72 tests**.
 Before shipping any change, also run `npm run lint`, `npm run typecheck`, and
 `npm run build`.
 

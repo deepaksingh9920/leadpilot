@@ -104,9 +104,10 @@ Build:
    per workspace, run form validated against each agent's input schema.
 4. Job system: worker endpoint with secret + cron, atomic lease claiming, per-step
    records, retries/backoff, cancellation, stale-lease recovery, usage reservation.
-5. Lead Finder pipeline using configured source adapter; Company Research and
-   Qualification using configured AI adapter. With integrations absent, the run form
-   explains what to connect and the server rejects the run cleanly.
+5. Agent runtime wiring: every agent declares the provider it needs, jobs are gated by
+   plan access and a global `AGENT_RUNTIME_READY` flag, and the run UI explains missing
+   configuration. Source and AI adapters ship in Phase 4; until then the server rejects
+   runs cleanly and the UI never pretends execution is available.
 6. Campaign scaffolding: create campaigns, add qualified leads, statuses, daily send cap,
    campaign detail with funnel counts.
 
@@ -120,6 +121,51 @@ Acceptance criteria:
 - No run can exceed plan limits; usage counters reconcile after cancel/failure.
 - With no AI/source keys, provider-dependent actions are disabled server-side with clear
   setup guidance (verified by test).
+
+### Phase 3 verification (2026-11-05)
+
+Automated:
+- [x] `npm run test`: 11 files, 72 tests, including DB-backed integration suites that push
+  the real schema to a throwaway SQLite database (import/dedupe/limits and job
+  claim/retry/cancel/refund).
+- [x] `npm run typecheck`, `npm run lint`, and `npm run build` pass. The production build
+  includes every new route: import wizard and reports, lead detail, campaign creation and
+  detail, agent detail, run detail, CSV export, and the worker endpoint.
+
+Browser QA (desktop):
+- [x] CSV import of 4 rows stored 2 leads, skipped 1 duplicate, and reported 1 invalid row
+  with reasons. Re-importing the same file stored 0 and skipped 3.
+- [x] Leads list shows source, evidence link, and verification status; lead detail status
+  change, notes, and activity timeline all persist.
+- [x] Campaign creation, the activation guard with no leads, adding a qualified lead,
+  activation, and daily cap update all work.
+- [x] Status controls reflect the saved value immediately after the action, with no reload.
+- [x] Agent detail replaces the run form with an explicit execution-unavailable notice and
+  provider setup guidance while `AGENT_RUNTIME_READY` is false.
+- [x] A queued run can be cancelled, the reserved run is refunded, and workspace usage
+  returns to 0/10. A succeeded run shows its step log and structured result.
+- [x] CSV export returns leads with provenance/verification columns, writes an audit entry,
+  allows the Free plan's two exports, then returns 429.
+- [x] Worker endpoint returns 503 when no secret is configured, 401 for a missing or wrong
+  secret, 200 with the correct secret, and 405 for GET.
+
+Fixed during verification:
+- Uncontrolled status selects kept showing the pre-action value after a successful server
+  action because React resets the form. Campaign and lead status selects now remount when
+  the saved value changes.
+- SQLite does not support `createMany({ skipDuplicates })`; campaign lead inserts now dedupe
+  explicitly.
+- CSV auto-mapping could bind the same column to two fields; it now uses a two-pass
+  exact-then-fuzzy match.
+
+Known limitations:
+- Live source and AI adapters remain Phase 4 work. `AGENT_RUNTIME_READY` stays false and
+  provider-dependent runs are rejected on the server.
+- Campaign sending, lead-source connections, Stripe checkout, and email delivery remain
+  unavailable by design and are labeled as such in the UI.
+- 390 px mobile QA is limited to static review of responsive classes and overflow
+  containers; the in-app browser cannot emulate a device. Wide tables use horizontal
+  scrollers and the sidebar collapses into the mobile navigation.
 
 Depends on: Phase 2, provider decisions in `docs/INTEGRATIONS.md`.
 

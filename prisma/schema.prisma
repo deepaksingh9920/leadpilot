@@ -34,6 +34,8 @@ model User {
   outreachApproved OutreachMessage[] @relation("OutreachApprover")
   auditLogs        AuditLog[]
   emailTokens      EmailToken[]
+  jobs             Job[]             @relation("JobCreator")
+  leadImports      LeadImport[]      @relation("LeadImportCreator")
 }
 
 model Session {
@@ -75,6 +77,8 @@ model Workspace {
   outreachMessages   OutreachMessage[]
   suppressionEntries SuppressionEntry[]
   auditLogs          AuditLog[]
+  jobs               Job[]
+  leadImports        LeadImport[]
 
   @@index([ownerId])
 }
@@ -253,6 +257,7 @@ model AgentDefinition {
 
   configs AgentConfig[]
   plans   PlanAgent[]
+  jobs    Job[]
 }
 
 model AgentConfig {
@@ -301,7 +306,8 @@ model LeadSource {
   lastSyncedAt DateTime?
   createdAt   DateTime  @default(now())
 
-  leads Lead[]
+  leads   Lead[]
+  imports LeadImport[]
 
   @@index([workspaceId])
 }
@@ -328,6 +334,9 @@ model Lead {
   sourceRecordId     String?
   sourceUrl          String?
   retrievedAt        DateTime?
+  // Stable cross-import identity: normalized email, else domain, else company+location.
+  // Prevents the same business being stored twice when a file is imported again.
+  dedupeKey          String?
   verificationStatus String    @default("UNVERIFIED") // UNVERIFIED | PARTIAL | VERIFIED
   score              Int       @default(0)
   scoreReasons       String    @default("[]") // JSON array
@@ -346,6 +355,7 @@ model Lead {
   outreachMessages OutreachMessage[]
 
   @@unique([workspaceId, sourceId, sourceRecordId])
+  @@unique([workspaceId, dedupeKey])
   @@index([workspaceId, status])
   @@index([workspaceId, createdAt])
   @@index([workspaceId, contactEmail])
@@ -451,6 +461,74 @@ model SuppressionEntry {
 
   @@unique([workspaceId, normalizedEmail])
   @@index([workspaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Imports and background jobs
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LeadImport {
+  id             String      @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceId       String?
+  source         LeadSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  createdById    String
+  createdBy      User        @relation("LeadImportCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  filename       String
+  rowCount       Int
+  importedCount  Int         @default(0)
+  duplicateCount Int         @default(0)
+  invalidCount   Int         @default(0)
+  report         String      @default("[]") // JSON array of row-level issues, capped
+  createdAt      DateTime    @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+model Job {
+  id             String          @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentKey       String
+  agent          AgentDefinition @relation(fields: [agentKey], references: [key], onDelete: Cascade)
+  createdById    String
+  createdBy      User            @relation("JobCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  status         String          @default("QUEUED") // QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELLED
+  input          String          @default("{}")
+  result         String?         // JSON
+  error          String?
+  attempts       Int             @default(0)
+  maxAttempts    Int             @default(3)
+  availableAt    DateTime        @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  leaseExpiresAt DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  steps JobStep[]
+
+  @@index([workspaceId, status])
+  @@index([status, availableAt])
+  @@index([leaseExpiresAt])
+}
+
+model JobStep {
+  id         String    @id @default(cuid())
+  jobId      String
+  job        Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name       String
+  status     String    @default("PENDING") // PENDING | RUNNING | SUCCEEDED | FAILED | SKIPPED
+  attempt    Int       @default(1)
+  detail     String    @default("{}")
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([jobId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

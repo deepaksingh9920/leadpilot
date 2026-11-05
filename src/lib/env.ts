@@ -22,6 +22,8 @@ export const env = {
   emailConfigured: Boolean(optional("RESEND_API_KEY") && optional("EMAIL_FROM")),
   billingConfigured: Boolean(optional("STRIPE_SECRET_KEY")),
   sentryConfigured: Boolean(optional("SENTRY_DSN")),
+  workerSecret: optional("WORKER_SECRET"),
+  agentRuntimeReady: optional("AGENT_RUNTIME_READY") === "true",
   logLevel: optional("LOG_LEVEL") ?? "info",
 };
 

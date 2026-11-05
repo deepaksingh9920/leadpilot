@@ -85,6 +85,40 @@ export async function reserveUsage(
   return { ok: true };
 }
 
+/**
+ * Returns reserved usage after a cancelled or permanently failed action so plan
+ * counters reconcile instead of leaking capacity.
+ */
+export async function releaseUsage(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  metric: string,
+  amount: number,
+): Promise<void> {
+  const periodStart = periodStartForMetric(metric);
+  const existing = await tx.usageCounter.findUnique({
+    where: { workspaceId_metric_periodStart: { workspaceId, metric, periodStart } },
+  });
+  if (!existing) return;
+
+  await tx.usageCounter.update({
+    where: { id: existing.id },
+    data: { used: Math.max(0, existing.used - amount) },
+  });
+}
+
+export type WorkspaceLimits = Record<string, number>;
+
+export async function getWorkspaceLimits(workspaceId: string): Promise<WorkspaceLimits> {
+  const subscription = await db.subscription.findUnique({
+    where: { workspaceId },
+    include: { plan: { include: { limits: true } } },
+  });
+  const limits: WorkspaceLimits = {};
+  for (const limit of subscription?.plan.limits ?? []) limits[limit.metric] = limit.limit;
+  return limits;
+}
+
 type CreateWorkspaceInput = {
   ownerId: string;
   name: string;
