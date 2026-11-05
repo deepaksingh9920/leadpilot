@@ -9,9 +9,9 @@ import {
   JOB_LEASE_MS,
   MAX_JOB_ATTEMPTS,
   nextAvailableAt,
-  PermanentJobError,
 } from "@/lib/jobs/policy";
 import { getAgentStatus } from "@/server/services/providers";
+import { defaultJobExecutor } from "@/server/services/agents";
 import { releaseUsage, reserveUsage } from "@/server/services/workspaces";
 
 const DEFAULT_BATCH_SIZE = 5;
@@ -194,14 +194,8 @@ export type JobExecutionContext = {
 
 export type JobExecutor = (context: JobExecutionContext) => Promise<Record<string, unknown>>;
 
-/**
- * No live provider adapters exist in this build. Jobs are guarded at creation,
- * so reaching this executor means an operator enabled the runtime flag without
- * an adapter; fail permanently and visibly rather than pretending to work.
- */
-export const defaultJobExecutor: JobExecutor = async () => {
-  throw new PermanentJobError("No live agent adapter is enabled in this build.");
-};
+/** Executors live in server/services/agents and are keyed by agent. */
+export { defaultJobExecutor };
 
 export async function processJob(
   job: ClaimedJob,

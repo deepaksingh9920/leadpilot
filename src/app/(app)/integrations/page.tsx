@@ -15,6 +15,8 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
+import { PROVIDER_TERMS_URLS } from "@/lib/providers/types";
+import { getActiveLeadSource } from "@/server/services/lead-sources";
 
 export const metadata = { title: "Integrations" };
 
@@ -24,11 +26,15 @@ type ProviderCard = {
   envKeys: string[];
   configured: boolean;
   note: string;
+  active?: boolean;
+  termsUrl?: string;
 };
 
 export default async function IntegrationsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
+
+  const activeSource = getActiveLeadSource();
 
   const records = await db.integration.findMany({
     where: { workspaceId: context.workspace.id },
@@ -62,29 +68,35 @@ export default async function IntegrationsPage() {
             name: "Apollo",
             description: "Company and contact search through Apollo's licensed API.",
             envKeys: ["APOLLO_API_KEY"],
-            configured: Boolean(process.env.APOLLO_API_KEY),
-            note: "Review your Apollo plan's data-use terms before enabling outreach.",
+            configured: Boolean(env.apolloApiKey),
+            active: activeSource.ok && activeSource.source.provider === "apollo",
+            termsUrl: PROVIDER_TERMS_URLS.apollo,
+            note: "Selected with PRIMARY_LEAD_SOURCE=apollo. Review your Apollo plan's data-use terms before enabling outreach.",
           },
           {
             name: "People Data Labs",
             description: "Company enrichment from a licensed dataset.",
             envKeys: ["PDL_API_KEY"],
-            configured: Boolean(process.env.PDL_API_KEY),
-            note: "Records keep the PDL dataset reference and retrieval timestamp.",
+            configured: Boolean(env.pdlApiKey),
+            active: activeSource.ok && activeSource.source.provider === "pdl",
+            termsUrl: PROVIDER_TERMS_URLS.pdl,
+            note: "Selected with PRIMARY_LEAD_SOURCE=pdl. Records keep the PDL dataset reference and retrieval timestamp.",
           },
           {
             name: "Google Places",
             description: "Business listings for local and regional prospecting.",
             envKeys: ["GOOGLE_PLACES_API_KEY"],
-            configured: Boolean(process.env.GOOGLE_PLACES_API_KEY),
-            note: "Place details must be cached according to Google's terms.",
+            configured: Boolean(env.googlePlacesApiKey),
+            active: activeSource.ok && activeSource.source.provider === "google_places",
+            termsUrl: PROVIDER_TERMS_URLS.google_places,
+            note: "Selected with PRIMARY_LEAD_SOURCE=google_places. Business listings only; place details must be cached according to Google's terms.",
           },
           {
             name: "CSV import",
             description: "Import data you already have the right to use.",
             envKeys: [],
-            configured: false,
-            note: "Import and field mapping are part of a later phase. No import button is shown until it works.",
+            configured: true,
+            note: "Available now: upload a file from Lead management → Import. The server re-parses and validates every row, and duplicates are skipped.",
           },
         ],
       },
@@ -160,10 +172,42 @@ export default async function IntegrationsPage() {
         <code className="mx-1 rounded bg-white/60 px-1 py-0.5 text-[11px]">
           APOLLO_API_KEY
         </code>
-        ). Encrypted per-workspace credentials arrive with the integration phase. Until a
-        provider is configured, its features report as unavailable instead of falling back to
-        demo data.
+        ). <code className="mx-1 rounded bg-white/60 px-1 py-0.5 text-[11px]">PRIMARY_LEAD_SOURCE</code>
+        chooses which configured lead-source API is active. When exactly one API key is present
+        it is used automatically; multiple keys without an explicit choice fail closed. CSV import
+        is always available. Nothing falls back to demo data.
       </Alert>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+              Active discovery source
+            </p>
+            <p className="mt-1 font-display text-lg font-semibold text-ink">
+              {activeSource.ok ? activeSource.source.label : "Not configured"}
+            </p>
+            <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-muted">
+              {activeSource.ok
+                ? "Lead Finder sends your ICP filters to this provider and stores only the fields it returns, with source and retrieval metadata."
+                : activeSource.message}
+            </p>
+            {activeSource.ok ? (
+              <a
+                href={activeSource.source.termsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex text-[11px] font-semibold text-brand hover:text-brand-dark"
+              >
+                Provider terms
+              </a>
+            ) : null}
+          </div>
+          <Badge tone={activeSource.ok ? "success" : "warning"}>
+            {activeSource.ok ? "Ready" : "Unavailable"}
+          </Badge>
+        </div>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {groups.map((group) => (
@@ -187,14 +231,17 @@ export default async function IntegrationsPage() {
                         {provider.description}
                       </p>
                     </div>
-                    {provider.configured ? (
-                      <Badge tone="success">
-                        <CheckCircle2 className="size-3" aria-hidden="true" />
-                        Configured
-                      </Badge>
-                    ) : (
-                      <Badge tone="neutral">Not configured</Badge>
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {provider.active ? <Badge tone="brand">Active</Badge> : null}
+                      {provider.configured ? (
+                        <Badge tone="success">
+                          <CheckCircle2 className="size-3" aria-hidden="true" />
+                          Configured
+                        </Badge>
+                      ) : (
+                        <Badge tone="neutral">Not configured</Badge>
+                      )}
+                    </div>
                   </div>
 
                   {provider.envKeys.length > 0 ? (
@@ -211,6 +258,16 @@ export default async function IntegrationsPage() {
                   ) : null}
 
                   <p className="mt-2 text-[10px] leading-relaxed text-muted">{provider.note}</p>
+                  {provider.termsUrl ? (
+                    <a
+                      href={provider.termsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex text-[10px] font-semibold text-brand hover:text-brand-dark"
+                    >
+                      Data-use terms
+                    </a>
+                  ) : null}
                 </li>
               ))}
             </ul>

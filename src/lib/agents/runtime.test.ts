@@ -45,7 +45,7 @@ describe("agent runtime gating", () => {
     expect(status.message).toContain("drafts only");
   });
 
-  it("stays gated while live adapters are disabled", () => {
+  it("stays gated while the operator has not enabled execution", () => {
     const status = getAgentRuntimeStatus("LEAD_QUALIFICATION", {
       ...none,
       aiConfigured: true,
@@ -54,7 +54,19 @@ describe("agent runtime gating", () => {
     expect(status.runnable).toBe(false);
     if (status.runnable) return;
     expect(status.code).toBe("RUNTIME_NOT_READY");
-    expect(status.message).toContain("Phase 4");
+    expect(status.message).toContain("AGENT_RUNTIME_READY");
+  });
+
+  it("does not advertise agents without an executor", () => {
+    const status = getAgentRuntimeStatus("COMPETITOR_RESEARCH", {
+      ...none,
+      aiConfigured: true,
+      runtimeReady: true,
+    });
+    expect(status.runnable).toBe(false);
+    if (status.runnable) return;
+    expect(status.code).toBe("RUNTIME_NOT_READY");
+    expect(status.message).toContain("executor");
   });
 
   it("is runnable only when provider and runtime are both ready", () => {

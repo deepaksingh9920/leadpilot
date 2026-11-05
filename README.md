@@ -4,12 +4,13 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 3 complete.** Workspace, authentication, onboarding, plan limits, admin
+> **Status: Phase 4A complete.** Workspace, authentication, onboarding, plan limits, admin
 > configuration, lead management (CSV import, dedupe, provenance, export), campaign
-> scaffolding, and the queue/worker job system are implemented and verified. Live agent
-> adapters, lead-source connectors, email delivery, and billing activate in later phases
-> and stay off until their provider credentials are configured. LeadPilot never fabricates
-> leads, contact details, company facts, or sources.
+> scaffolding, the queue/worker job system, and grounded agent execution are implemented
+> and verified. Lead discovery can use Apollo, People Data Labs, or Google Places, and
+> research/qualification use an OpenAI-compatible model — all behind server-side flags and
+> keys. Email delivery, billing, and outreach sending remain later phases and stay off until
+> configured. LeadPilot never fabricates leads, contact details, company facts, or sources.
 
 ## Stack
 
@@ -19,7 +20,7 @@ every send waits for a human decision.
 | UI | React 19, TypeScript strict, Tailwind CSS v4, Recharts, lucide-react |
 | Data | Prisma 6 + SQLite locally (Postgres planned for production) |
 | Auth | Custom bcrypt credentials, hashed DB sessions, DB-backed rate limits |
-| Email | Resend adapter (verification + password reset) |
+| Email | Resend adapter planned for verification, reset, and outreach |
 | Tests | Vitest |
 
 ## Quick start
@@ -59,17 +60,21 @@ Generate a secret with:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Everything else in `.env.example` is optional and only takes effect once its phase is
-implemented:
+Everything else in `.env.example` is optional and takes effect only when its feature is
+configured:
 
-- `AI_*` — research, scoring rationale, and draft generation.
+- `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` — grounded research and qualification. Calls are
+  made only when these are set and `AGENT_RUNTIME_READY=true`.
 - `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` — permitted lead sources.
-- `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery.
-- `STRIPE_*` — subscription checkout and plan changes.
+  `PRIMARY_LEAD_SOURCE` picks one explicitly; with no explicit choice, exactly one
+  configured key is used, and multiple keys fail closed. CSV import always works.
+- `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery (not
+  implemented yet; those flows report that delivery is unconfigured).
+- `STRIPE_*` — subscription checkout and plan changes (not implemented yet).
 - `WORKER_SECRET` — authenticates `POST /api/worker/run`; the endpoint returns 503 while
   it is unset.
-- `AGENT_RUNTIME_READY` — must stay `false` until the Phase 4 adapters exist; it gates all
-  job execution.
+- `AGENT_RUNTIME_READY` — operator switch for job execution. Keep it `false` until the AI
+  and lead-source keys are set; queued jobs do not run while it is false.
 
 The app reports each provider's real configuration state on **Integrations**; it never
 falls back to demo data.
@@ -121,15 +126,25 @@ detail, agent catalog and detail with runtime gating, run detail with step logs,
 status, settings (profile, password, team, usage), and a superadmin console for plans,
 limits, agent catalog, and platform audit.
 
-**Lead data** — imports require a rights confirmation, re-parse the uploaded file on the
-server, and dedupe by normalized email, then domain, then company + location. Every row keeps
-its source and evidence URL; invalid rows are reported, never repaired or invented. Exports
-include provenance, verification status, and retrieval dates and are limited by plan.
+**Lead data** — discovery calls the configured provider (Apollo, People Data Labs, or
+Google Places) and stores only fields the provider returned, with provider record ID,
+source URL, retrieval timestamp, license note, and field verification status. Imports
+require a rights confirmation, re-parse the uploaded file on the server, and dedupe by
+normalized email, then domain, then company + location. Invalid rows are reported, never
+repaired or invented. Exports include provenance, verification status, and retrieval dates
+and are limited by plan.
+
+**Agents** — Lead Finder, Company Research, and Lead Qualification execute inside the
+workspace. Discovery dedupes before insert and records source/evidence/activity/audit rows
+in one transaction. Research and qualification send only stored workspace fields to the
+configured model, validate every response against a schema, and preserve statuses a person
+set. Provider or schema failures fail the step honestly with no partial writes.
 
 **Jobs** — a secret-protected worker endpoint atomically claims due jobs with a two-minute
 lease, records each step, retries transient failures with backoff, and supports cancellation.
-Runs reserve plan usage up front and refund it on cancellation or permanent failure. Live
-agent execution stays disabled until the Phase 4 adapters exist.
+Runs reserve plan usage up front and refund it on cancellation or permanent failure.
+Execution is gated by `AGENT_RUNTIME_READY` and the configured provider; with no keys, the
+UI and server report the missing configuration instead of simulating a run.
 
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, security headers, and server-side limit checks. No outreach
@@ -137,13 +152,13 @@ can be sent in this build; the approval gate and send plumbing land in later pha
 
 ## Not implemented yet
 
-- Live agent adapters: the job system, gating, and UI are implemented, but no source or AI
-  provider calls are made until Phase 4.
-- Lead-source connectors (CSV import is available now).
-- Email sending pipeline, suppression list, and outreach approval UI.
+- Email sending pipeline: account verification/reset, outreach approval, suppression list,
+  unsubscribe handling, and campaign analytics (Phase 4B).
 - Stripe checkout, webhooks, and paid plan changes.
 - Team invitations.
 - Postgres deployment and production hardening.
+- Executors for `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP`; those agents stay
+  disabled.
 
 These gaps are shown honestly in the UI rather than simulated. See `docs/ROADMAP.md` for
 the phase plan and `docs/ARCHITECTURE.md` for the design.
@@ -168,10 +183,11 @@ src/
     settings/        Settings forms
     ui/              Buttons, inputs, cards, badges, alerts
   lib/
-    agents/          Runtime gating and input schemas
+    agents/          Runtime gating, output schemas, input schemas
     auth/            Sessions, roles, rate limits, audit
     jobs/            Queue policy, leases, retry backoff
     leads/           Import mapping and dedupe
+    providers/       Apollo, PDL, Google Places, AI, selection
     csv.ts           CSV parse/serialize
     validation/      Zod schemas
   server/
@@ -191,13 +207,15 @@ docs/                Architecture, roadmap, compliance, integrations
 npm run test
 ```
 
-Unit tests cover CSV parsing, import mapping and dedupe rules, agent input schemas,
-runtime gating, job policy, validation, role hierarchy, rate-limit behavior, and formatting
-helpers. Database integration tests create a throwaway SQLite database with `prisma db push`
-and exercise the real import and job services, including transactions, unique constraints,
-retries, cancellation, and usage refunds. The suite is **11 files / 72 tests**.
-Before shipping any change, also run `npm run lint`, `npm run typecheck`, and
-`npm run build`.
+Unit tests cover CSV parsing, import mapping and dedupe rules, agent input/output schemas,
+runtime gating, job policy, validation, role hierarchy, rate-limit behavior, formatting
+helpers, and provider request shaping/normalization/error mapping for Apollo, PDL, Google
+Places, and the AI adapter. Database integration tests create a throwaway SQLite database
+with `prisma db push` and exercise the real import, job, and agent-executor services,
+including transactions, unique constraints, retries, cancellation, usage refunds, grounded
+research, qualification status preservation, and invalid-output retries. The suite is
+**19 files / 133 tests**. Before shipping any change, also run `npm run lint`,
+`npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics
 

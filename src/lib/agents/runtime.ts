@@ -10,7 +10,7 @@ export type ProviderCapabilities = {
   aiConfigured: boolean;
   leadSourceConfigured: boolean;
   emailConfigured: boolean;
-  /** Live agent adapters are implemented in Phase 4. */
+  /** Operator switch. Execution stays off until this is explicitly enabled. */
   runtimeReady: boolean;
 };
 
@@ -64,6 +64,17 @@ const REQUIREMENTS: Record<string, Requirement> = {
 
 export const OUTREACH_AGENT_KEYS = new Set(["EMAIL_OUTREACH", "FOLLOW_UP"]);
 
+/**
+ * Agents with a live executor in this build. Keep this list next to the job
+ * registry so the marketplace cannot advertise a runnable agent that has no
+ * implementation behind it.
+ */
+export const IMPLEMENTED_AGENT_KEYS = new Set([
+  "LEAD_FINDER",
+  "COMPANY_RESEARCH",
+  "LEAD_QUALIFICATION",
+]);
+
 export function getAgentRuntimeStatus(
   agentKey: string,
   capabilities: ProviderCapabilities,
@@ -111,7 +122,17 @@ export function getAgentRuntimeStatus(
       provider: requirement.provider,
       code: "RUNTIME_NOT_READY",
       message:
-        "The provider is configured, but the live adapter for this agent is part of Phase 4. The job queue is ready; runs stay disabled until that adapter ships.",
+        "Live agent execution is disabled. An operator must set AGENT_RUNTIME_READY=true after configuring the provider.",
+    };
+  }
+
+  if (!IMPLEMENTED_AGENT_KEYS.has(agentKey)) {
+    return {
+      runnable: false,
+      provider: requirement.provider,
+      code: "RUNTIME_NOT_READY",
+      message:
+        "This agent's executor is not implemented in this build. It stays disabled rather than pretending to run.",
     };
   }
 

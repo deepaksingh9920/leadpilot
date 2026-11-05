@@ -206,7 +206,9 @@ export default async function AgentDetailPage({
                       ? "Ready"
                       : runtime.code === "PROVIDER_MISSING"
                         ? "Provider missing"
-                        : "Pending Phase 4"}
+                        : runtime.code === "RUNTIME_NOT_READY"
+                          ? "Runtime disabled"
+                          : "Unavailable"}
                   </Badge>
                 </dd>
               </div>
@@ -273,7 +275,8 @@ export default async function AgentDetailPage({
 
       <p className="flex items-center gap-1.5 text-[11px] text-muted">
         <Gauge className="size-3.5" aria-hidden="true" />
-        Runs are gated by your plan and the workspace runtime. Nothing is sent by queueing a run.
+        Runs are gated by your plan and the workspace runtime. Queueing never sends email or
+        contacts a prospect; executors write only inside this workspace.
       </p>
       <p className="flex items-center gap-1.5 text-[11px] text-muted">
         <CalendarClock className="size-3.5" aria-hidden="true" />

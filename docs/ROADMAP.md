@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 2 complete · Last updated: 2026-10-29
+Status: Phase 4A complete — provider adapters and grounded execution · Last updated: 2026-11-05
 
 ## Working rules
 
@@ -159,44 +159,98 @@ Fixed during verification:
   exact-then-fuzzy match.
 
 Known limitations:
-- Live source and AI adapters remain Phase 4 work. `AGENT_RUNTIME_READY` stays false and
-  provider-dependent runs are rejected on the server.
-- Campaign sending, lead-source connections, Stripe checkout, and email delivery remain
-  unavailable by design and are labeled as such in the UI.
+- Phase 3 shipped before the live adapters. Phase 4A now implements Apollo, People Data
+  Labs, Google Places, and the OpenAI-compatible AI adapter; execution remains gated by
+  `AGENT_RUNTIME_READY` and the configured keys.
+- Campaign sending, Stripe checkout, and email delivery remain unavailable by design and
+  are labeled as such in the UI.
 - 390 px mobile QA is limited to static review of responsive classes and overflow
   containers; the in-app browser cannot emulate a device. Wide tables use horizontal
   scrollers and the sidebar collapses into the mobile navigation.
 
 Depends on: Phase 2, provider decisions in `docs/INTEGRATIONS.md`.
 
-## Phase 4 — Real sources, AI, validation, outreach
+## Phase 4A — Provider adapters and grounded execution (complete)
 
 Build:
-1. Implement and connect chosen lead-source adapter(s): search, normalize, enrich,
-   provider error mapping, license/terms metadata, health check.
-2. Implement AI adapter: structured output validation, timeouts, retry policy, token/cost
-   accounting, prompt versioning, grounding against stored lead fields.
-3. Field-level verification: cross-check provider values where the contract allows,
-   record `LeadFieldVerification`, surface freshness and source on every field.
-4. Outreach: deterministic templates + AI drafts, per-lead personalization from stored
-   fields, mandatory human review/edit, approval permission, schedule, send via email
-   adapter, unsubscribe link with signed token, suppression enforcement, failure states.
-5. Campaign analytics: sent/opened/replied/meetings from provider webhooks or manual
-   outcome logging; recommendations grounded in campaign data.
-6. Follow-up agent: due-date queue and reminders; no auto-send without approval.
+- [x] Lead-source adapters behind `PRIMARY_LEAD_SOURCE`: Apollo, People Data Labs, and
+  Google Places. Requests are shaped per provider, responses are normalized to one
+  contract, and only fields the provider actually returned are kept. Timeouts, auth,
+  rate-limit, upstream, and invalid-response failures are classified.
+- [x] OpenAI-compatible AI adapter (`POST /chat/completions`) with JSON output, timeout,
+  truncation handling, and zod validation for research and qualification results.
+- [x] Executors for Lead Finder, Company Research, and Lead Qualification. Discovery
+  writes source, evidence, verification, activity, and audit rows in one transaction and
+  dedupes by email, then domain, then company+location. Research and qualification only
+  update the workspace's own records and preserve statuses a person set.
+- [x] Runtime gating: `AGENT_RUNTIME_READY` plus per-agent provider availability. Missing
+  configuration fails closed; no mock provider is used to serve customer data.
+- [x] UI and docs: Integrations shows the active source, per-provider Configured/Active
+  badges, terms links, and the selection error. Agent and run pages describe what a run
+  can actually change.
 
 Acceptance criteria:
-- A run returns only records actually returned by the provider; every lead has provider,
-  record ID, URL, retrievedAt, and verification status.
-- Killing the provider mid-run produces a clear failure, no invented fallback records.
+- [x] A run returns only records actually returned by the provider; every lead has
+  provider, record ID, URL, retrievedAt, and verification status.
+- [x] Provider and AI failures produce clear errors with no invented fallback records and
+  no partial writes; retryable failures return to the queue.
+- [x] AI output failing schema validation is rejected and retried, never stored.
+- [x] Plan limits are enforced atomically and the reserved run is refunded on permanent
+  failure or cancellation.
+
+### Phase 4A verification (2026-11-05)
+
+Automated:
+- [x] `npm run test`: 19 files, 133 tests. New provider unit suites cover selection rules,
+  request shaping, normalization, skips, and error mapping for Apollo, PDL, Google
+  Places, and the AI adapter. A DB-backed executor suite covers discovery + dedupe/re-run,
+  grounded research, qualification with human-status preservation, plan-limit failure +
+  refund, and invalid AI output requeued without writes.
+- [x] `npm run typecheck`, `npm run lint`, and `npm run build` pass.
+
+Browser QA (desktop):
+- [x] `/integrations` shows the active discovery source as "Not configured" with the
+  selection guidance, per-provider Not configured badges, terms links, CSV "Available
+  now", and no console errors.
+- [x] Lead Finder, Company Research, and Lead Qualification pages show "Provider missing"
+  (the honest state with no AI/source keys) and the updated copy about workspace-only
+  writes; no console errors.
+- [x] A succeeded run detail page shows the "What this run can change" notice and step
+  log; no console errors.
+
+Known limitations:
+- Live provider calls require real Apollo/PDL/Google Places keys, an AI key/model, and
+  `AGENT_RUNTIME_READY=true`. Adapter tests use injected stubs and never contact a
+  provider.
+- No outreach is sent. Approval, suppression, unsubscribe, and email delivery remain
+  Phase 4B work.
+- `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor and remain
+  disabled.
+
+Depends on: Phase 3, live/test credentials, provider terms acceptance.
+
+## Phase 4B — Verification, outreach, analytics (pending)
+
+Build:
+1. Field-level verification: cross-check provider values where the contract allows,
+   record `LeadFieldVerification`, surface freshness and source on every field.
+2. Outreach: deterministic templates + AI drafts, per-lead personalization from stored
+   fields, mandatory human review/edit, approval permission, schedule, send via email
+   adapter, unsubscribe link with signed token, suppression enforcement, failure states.
+3. Campaign analytics: sent/opened/replied/meetings from provider webhooks or manual
+   outcome logging; recommendations grounded in campaign data.
+4. Follow-up agent: due-date queue and reminders; no auto-send without approval.
+
+Acceptance criteria:
 - Editing a draft is preserved; approval is required for the exact message sent;
   suppressed addresses are blocked at send time and by the API.
 - Unsubscribe link works without login and adds a suppression entry; subsequent sends are
   blocked.
-- AI outputs failing schema validation are rejected and retried once, then surfaced as an
-  error without writing partial content.
+- Provider values that cannot be cross-checked stay marked as unverified rather than
+  being shown as verified.
 
-Depends on: Phase 3, live/test credentials, provider terms acceptance.
+Depends on: Phase 4A, live/test credentials, verified email domain, provider terms
+acceptance.
 
 ## Phase 5 — Billing, limits, admin, compliance safeguards
 
@@ -222,7 +276,7 @@ Acceptance criteria:
   direct API call.
 - Security checklist passes with documented residual risks.
 
-Depends on: Phase 4, Stripe account and price IDs.
+Depends on: Phase 4B, Stripe account and price IDs.
 
 ## Phase 6 — Verification, hardening, deployment
 
@@ -263,7 +317,8 @@ Depends on: Phase 5 and production credentials/domain.
 |---|---|
 | Phase 2 | Confirm brand direction (logo/wordmark preferences, accent color) if you have one; otherwise I will propose a premium indigo/amber identity |
 | Phase 3 | Decide primary lead-source provider and confirm its terms permit your intended use |
-| Phase 4 | API keys in `.env.local`: AI model, lead source, email (verified domain) |
+| Phase 4A | API keys in `.env.local`: AI model and at least one lead source (`APOLLO_API_KEY`, `PDL_API_KEY`, or `GOOGLE_PLACES_API_KEY`) |
+| Phase 4B | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
 | Phase 5 | Stripe test keys + price IDs; confirm plan prices/limits |
 | Phase 6 | Hosting choice and domain; production keys |
 

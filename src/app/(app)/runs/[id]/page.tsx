@@ -201,9 +201,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             </pre>
           </Card>
 
-          <Alert tone="shield" title="No side effects">
-            Queueing or running this job does not send email, contact a prospect, or change lead
-            status. Provider writes are separate, approved steps in later phases.
+          <Alert tone="shield" title="What this run can change">
+            Executors write only inside this workspace: discovery stores source-attributed leads,
+            research updates the lead description with verification notes, and qualification
+            updates scores and stages while preserving statuses a person set. No email is sent and
+            no external system is modified.
           </Alert>
 
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted">
