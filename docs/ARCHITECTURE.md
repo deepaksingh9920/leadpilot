@@ -1,6 +1,6 @@
 # LeadPilot — Architecture
 
-Status: Phase 1 approved direction · Last updated: 2026-10-29
+Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
 
 ## 1. Purpose and scope
 

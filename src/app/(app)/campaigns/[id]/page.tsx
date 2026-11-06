@@ -20,10 +20,16 @@ import {
   CampaignCapForm,
   CampaignStatusForm,
 } from "@/components/campaigns/campaign-settings-forms";
+import { CreateOutreachDraftForm } from "@/components/campaigns/outreach-forms";
 import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { formatDate } from "@/lib/utils";
 import { removeCampaignLeadAction } from "@/server/actions/campaigns";
 import { getCampaignDetail, getQualifiedLeadOptions } from "@/server/services/leads";
+import { getCampaignOutreachState } from "@/server/services/outreach";
+import {
+  getSuppressedEmails,
+  normalizeSuppressionEmail,
+} from "@/server/services/suppression";
 
 export const metadata = { title: "Campaign detail" };
 
@@ -37,6 +43,7 @@ const STATUS_TONES: Record<string, "brand" | "success" | "warning" | "neutral"> 
 const MESSAGE_TONES: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
   DRAFT: "neutral",
   APPROVED: "success",
+  SENDING: "warning",
   SCHEDULED: "warning",
   SENT: "success",
   FAILED: "danger",
@@ -59,6 +66,25 @@ export default async function CampaignDetailPage({
   const qualifiedOptions = await getQualifiedLeadOptions(context.workspace.id);
   const memberIds = new Set(campaign.leads.map((row) => row.lead.id));
   const availableOptions = qualifiedOptions.filter((option) => !memberIds.has(option.id));
+  const outreachRows = (await getCampaignOutreachState(context.workspace.id, campaign.id)) ?? [];
+  const suppressed = await getSuppressedEmails(
+    context.workspace.id,
+    outreachRows
+      .filter((row) => !row.message && row.contactEmail)
+      .map((row) => row.contactEmail!),
+  );
+  const draftOptions = outreachRows
+    .filter((row) => {
+      if (row.message || !row.contactEmail) return false;
+      const email = normalizeSuppressionEmail(row.contactEmail);
+      return Boolean(email && !suppressed.has(email));
+    })
+    .map((row) => ({
+      leadId: row.leadId,
+      companyName: row.companyName,
+      contactName: row.contactName,
+      contactEmail: row.contactEmail,
+    }));
 
   const canEdit = roleAtLeast(context.role, "MEMBER");
   const canManage = roleAtLeast(context.role, "ADMIN");
@@ -209,35 +235,95 @@ export default async function CampaignDetailPage({
 
           <Card>
             <CardHeader
-              title="Outreach messages"
-              description="Drafts and approvals for this campaign."
+              title="Outreach pipeline"
+              description="Every campaign lead and the latest message prepared for it. Nothing is sent automatically."
               action={<Mail className="size-4 text-muted" />}
             />
-            {campaign.messages.length === 0 ? (
+            {outreachRows.length === 0 ? (
               <p className="px-5 py-8 text-sm text-muted">
-                No messages yet. Outreach drafting ships with the outreach phase; nothing is sent
-                automatically.
+                Add qualified leads to the campaign before preparing outreach.
               </p>
             ) : (
-              <ul className="divide-y divide-line">
-                {campaign.messages.map((message) => (
-                  <li
-                    key={message.id}
-                    className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[12px] font-medium text-ink">
-                        {message.subject}
-                      </p>
-                      <p className="text-[11px] text-muted">{formatDate(message.createdAt)}</p>
-                    </div>
-                    <Badge tone={MESSAGE_TONES[message.status] ?? "neutral"}>
-                      {message.status}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+              <div className="overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[620px] text-left">
+                  <thead>
+                    <tr className="border-b border-line bg-canvas/60">
+                      {["Company", "Contact", "Stage", "Message", ""].map((heading) => (
+                        <th
+                          key={heading}
+                          className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-muted"
+                        >
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outreachRows.map((row) => (
+                      <tr key={row.leadId} className="border-b border-line/60 last:border-0">
+                        <td className="px-5 py-3">
+                          <Link
+                            href={`/leads/${row.leadId}`}
+                            className="text-[13px] font-semibold text-ink hover:text-brand hover:underline"
+                          >
+                            {row.companyName}
+                          </Link>
+                        </td>
+                        <td className="px-5 py-3 text-[12px] text-ink-soft">
+                          {row.contactName ?? "—"}
+                          <p className="text-[11px] text-muted">
+                            {row.contactEmail ?? "No email"}
+                          </p>
+                        </td>
+                        <td className="px-5 py-3">
+                          <Badge tone="outline">{row.stage}</Badge>
+                        </td>
+                        <td className="px-5 py-3">
+                          {row.message ? (
+                            <div>
+                              <Badge tone={MESSAGE_TONES[row.message.status] ?? "neutral"}>
+                                {row.message.status}
+                              </Badge>
+                              {row.message.failureReason ? (
+                                <p className="mt-1 max-w-[220px] text-[10px] leading-relaxed text-danger">
+                                  {row.message.failureReason}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted">Not drafted</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {row.message ? (
+                            <Link
+                              href={`/campaigns/${campaign.id}/messages/${row.message.id}`}
+                              className="text-[12px] font-semibold text-brand hover:text-brand-dark"
+                            >
+                              Open
+                            </Link>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Draft outreach"
+              description="Generate a grounded draft from stored facts. An admin must approve the exact content before sending."
+            />
+            <div className="px-5 py-4">
+              {canEdit ? (
+                <CreateOutreachDraftForm campaignId={campaign.id} options={draftOptions} />
+              ) : (
+                <p className="text-sm text-muted">Your role cannot draft outreach.</p>
+              )}
+            </div>
           </Card>
         </div>
 
@@ -251,8 +337,8 @@ export default async function CampaignDetailPage({
                 canManage={canManage}
               />
               <p className="mt-2 text-[11px] leading-relaxed text-muted">
-                Activating requires at least one lead. Status changes are audited; activation does
-                not send email in this build.
+                Activating requires at least one lead. Status changes are audited. Activation never
+                bypasses per-message approval.
               </p>
             </div>
           </Card>
@@ -273,9 +359,9 @@ export default async function CampaignDetailPage({
           </Card>
 
           <Alert tone="shield" title="Human approval required">
-            Any outreach this campaign produces is stored as a draft. A workspace admin must review
-            and approve each message before it can be scheduled, and every send requires a
-            configured email provider plus unsubscribe handling.
+            Every message is stored as a draft. A workspace admin must approve the exact content
+            before it can be sent, and the sender re-checks that approval and the suppression list
+            immediately before delivery.
           </Alert>
 
           <Card className="p-5">
@@ -287,7 +373,7 @@ export default async function CampaignDetailPage({
               <li>Suppressed addresses are excluded before drafting.</li>
               <li>Daily caps apply per campaign and per workspace.</li>
               <li>Removing a lead leaves the lead intact in your workspace.</li>
-              <li>No send path is enabled until email delivery is configured.</li>
+              <li>Each email carries a signed unsubscribe link and your mailing address.</li>
             </ul>
           </Card>
         </div>

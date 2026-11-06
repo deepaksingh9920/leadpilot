@@ -38,6 +38,7 @@ export async function updateProfileAction(
     description: formString(formData, "description"),
     valueProposition: formString(formData, "valueProposition"),
     phone: formString(formData, "phone"),
+    mailingAddress: formString(formData, "mailingAddress"),
     senderName: formString(formData, "senderName"),
     senderEmail: formString(formData, "senderEmail"),
   });

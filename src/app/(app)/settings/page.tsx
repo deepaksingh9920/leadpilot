@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckCircle2, KeyRound, MailWarning, ShieldCheck, Users } from "lucide-react";
+import { Ban, CheckCircle2, KeyRound, MailWarning, ShieldCheck, Users } from "lucide-react";
 
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
 import { PasswordForm } from "@/components/settings/password-form";
@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { formatCurrency, formatDate, percentage } from "@/lib/utils";
+import { countSuppressions } from "@/server/services/suppression";
 import { getUsageSummary, METRIC_LABELS } from "@/server/services/workspaces";
 
 export const metadata = { title: "Settings" };
@@ -36,13 +37,14 @@ export default async function SettingsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
 
-  const [memberships, usage] = await Promise.all([
+  const [memberships, usage, suppressedCount] = await Promise.all([
     db.membership.findMany({
       where: { workspaceId: context.workspace.id },
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "asc" },
     }),
     getUsageSummary(context.workspace.id),
+    countSuppressions(context.workspace.id),
   ]);
 
   const profile = context.workspace.profile;
@@ -156,6 +158,7 @@ export default async function SettingsPage() {
                 description: profile?.description ?? "",
                 valueProposition: profile?.valueProposition ?? "",
                 phone: profile?.phone ?? "",
+                mailingAddress: profile?.mailingAddress ?? "",
                 senderName: profile?.senderName ?? "",
                 senderEmail: profile?.senderEmail ?? "",
               }}
@@ -275,6 +278,26 @@ export default async function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Suppression list"
+          description="Addresses that must never receive outreach from this workspace."
+          action={<Badge tone="warning">{suppressedCount.toLocaleString()} suppressed</Badge>}
+        />
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted">
+            <Ban className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            Unsubscribes are added automatically. Manual entries and CSV imports are supported.
+          </p>
+          <Link
+            href="/settings/suppression"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface px-3.5 text-[13px] font-semibold text-ink hover:bg-canvas"
+          >
+            Manage suppression
+          </Link>
+        </div>
+      </Card>
     </div>
   );
 }

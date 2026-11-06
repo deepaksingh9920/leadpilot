@@ -97,6 +97,7 @@ export async function updateBusinessProfile(
   const profileData = {
     ...profileFields(input),
     phone: input.phone ?? null,
+    mailingAddress: input.mailingAddress ?? null,
     senderName: input.senderName ?? null,
     senderEmail: input.senderEmail?.toLowerCase() ?? null,
   };

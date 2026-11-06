@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 4A complete — provider adapters and grounded execution · Last updated: 2026-11-05
+Status: Phase 4B outreach safety complete — verified drafts, approval-gated sends, suppression, unsubscribe · Last updated: 2026-11-06
 
 ## Working rules
 
@@ -162,8 +162,9 @@ Known limitations:
 - Phase 3 shipped before the live adapters. Phase 4A now implements Apollo, People Data
   Labs, Google Places, and the OpenAI-compatible AI adapter; execution remains gated by
   `AGENT_RUNTIME_READY` and the configured keys.
-- Campaign sending, Stripe checkout, and email delivery remain unavailable by design and
-  are labeled as such in the UI.
+- Campaign sending was unavailable when Phase 3 shipped; Phase 4B now implements
+  approval-gated outreach. Stripe checkout and account email delivery remain unavailable by
+  design and are labeled as such in the UI.
 - 390 px mobile QA is limited to static review of responsive classes and overflow
   containers; the in-app browser cannot emulate a device. Wide tables use horizontal
   scrollers and the sidebar collapses into the mobile navigation.
@@ -222,35 +223,90 @@ Known limitations:
 - Live provider calls require real Apollo/PDL/Google Places keys, an AI key/model, and
   `AGENT_RUNTIME_READY=true`. Adapter tests use injected stubs and never contact a
   provider.
-- No outreach is sent. Approval, suppression, unsubscribe, and email delivery remain
-  Phase 4B work.
+- Phase 4B now implements approval-gated outreach, suppression, and unsubscribe; field
+  verification and analytics remain pending.
 - `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor and remain
   disabled.
 
 Depends on: Phase 3, live/test credentials, provider terms acceptance.
 
-## Phase 4B — Verification, outreach, analytics (pending)
+## Phase 4B — Outreach safety (complete)
 
 Build:
-1. Field-level verification: cross-check provider values where the contract allows,
-   record `LeadFieldVerification`, surface freshness and source on every field.
-2. Outreach: deterministic templates + AI drafts, per-lead personalization from stored
-   fields, mandatory human review/edit, approval permission, schedule, send via email
-   adapter, unsubscribe link with signed token, suppression enforcement, failure states.
-3. Campaign analytics: sent/opened/replied/meetings from provider webhooks or manual
-   outcome logging; recommendations grounded in campaign data.
-4. Follow-up agent: due-date queue and reminders; no auto-send without approval.
+- [x] Grounded outreach drafts: deterministic templates built only from stored workspace and
+  lead facts, with an optional AI draft path when the model is configured. Subject/body are
+  validated, and an edit to an approved message revokes approval.
+- [x] Approval gate: an admin or owner approves the exact subject and body. Approval stores
+  the approver, timestamp, and a SHA-256 content hash; sending re-computes and compares it.
+  Approval requires a workspace mailing address and a valid recipient email.
+- [x] Suppression: workspace-scoped suppression list with manual add, CSV import (validated,
+  deduped), search, and removal. Addresses are checked before a draft is created and again
+  immediately before every send.
+- [x] Signed unsubscribe: deterministic HMAC token bound to workspace/message/email; only
+  `sha256(token)` is stored. The public page works without login, masks the address, is
+  idempotent, and records a suppression plus lead activity and audit entries.
+- [x] Delivery: Resend adapter gated by `RESEND_API_KEY`/`EMAIL_FROM`. Sends enforce an
+  active campaign, campaign daily cap, and plan daily send allowance; failures leave the
+  message approved and release the reserved allowance. Every message appends the workspace
+  mailing address and one-click unsubscribe link.
+- [x] UI: campaign outreach pipeline, message detail with exact delivery preview, approval
+  and send actions, clear failure states, and a suppression settings page.
 
 Acceptance criteria:
-- Editing a draft is preserved; approval is required for the exact message sent;
-  suppressed addresses are blocked at send time and by the API.
-- Unsubscribe link works without login and adds a suppression entry; subsequent sends are
-  blocked.
-- Provider values that cannot be cross-checked stay marked as unverified rather than
-  being shown as verified.
+- [x] Editing a draft is preserved; approval covers the exact content sent.
+- [x] Suppressed addresses are blocked at draft time and at send time, including after
+  approval.
+- [x] Unsubscribe works without login, adds a suppression entry, and blocks subsequent
+  sends.
+- [x] Provider failures are reported honestly on the message; nothing is simulated.
 
-Depends on: Phase 4A, live/test credentials, verified email domain, provider terms
-acceptance.
+### Phase 4B verification (2026-11-06)
+
+Automated:
+- [x] `npm run test`: 24 files, 177 tests. New suites cover template grounding and approval
+  hashes, unsubscribe token signing, suppression add/import/search/remove, and a DB-backed
+  outreach suite covering content-hash revocation, suppression at draft and send time, caps,
+  provider success/failure, allowance release, the Resend payload, and public unsubscribe
+  (including forged and rebound tokens).
+- [x] `npm run typecheck`, `npm run lint`, and `npm run build` pass.
+
+Browser QA (desktop):
+- [x] Generated a grounded draft from a real campaign lead and confirmed the exact preview
+  includes the sender identity, mailing address, and signed unsubscribe URL.
+- [x] Approval without a mailing address is blocked with a clear message; after saving the
+  address, approval stores the content hash and updates the pipeline to Approved.
+- [x] Sending without a provider reports `NOT_CONFIGURED` and leaves the message approved.
+- [x] Suppression add, search/no-match, and removal all work.
+- [x] Public unsubscribe rejects an invalid token, previews a valid one with a masked
+  address, records the suppression, and shows an already-suppressed state on repeat.
+- [x] Campaign detail reports the SENT count and stage; zero console errors.
+
+Known limitations:
+- Live sending requires `RESEND_API_KEY`, `EMAIL_FROM`, and ideally a verified sending
+  domain. Account verification/reset email stays unavailable until then.
+- Field-level verification and campaign analytics remain pending.
+- `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` still have no executors.
+
+Depends on: Phase 4A, verified email domain, provider terms acceptance.
+
+## Phase 4B (continued) — Field verification and campaign analytics (pending)
+
+Build:
+1. Field-level verification: cross-check provider values where the contract allows, record
+   `LeadFieldVerification`, surface freshness and source on every field. Values that cannot
+   be cross-checked stay marked unverified.
+2. Campaign analytics: sent/opened/replied/meetings from provider webhooks or manual
+   outcome logging; recommendations grounded in campaign data.
+3. Follow-up agent: due-date queue and reminders; no auto-send without approval.
+
+Acceptance criteria:
+- Provider values that cannot be cross-checked stay marked as unverified rather than being
+  shown as verified.
+- Analytics distinguish observed events from manual outcome logging and never invent
+  opens/replies.
+- Follow-up reminders cannot send without a fresh human approval.
+
+Depends on: Phase 4B outreach safety, live/test credentials, verified email domain.
 
 ## Phase 5 — Billing, limits, admin, compliance safeguards
 
@@ -318,7 +374,8 @@ Depends on: Phase 5 and production credentials/domain.
 | Phase 2 | Confirm brand direction (logo/wordmark preferences, accent color) if you have one; otherwise I will propose a premium indigo/amber identity |
 | Phase 3 | Decide primary lead-source provider and confirm its terms permit your intended use |
 | Phase 4A | API keys in `.env.local`: AI model and at least one lead source (`APOLLO_API_KEY`, `PDL_API_KEY`, or `GOOGLE_PLACES_API_KEY`) |
-| Phase 4B | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
+| Phase 4B outreach safety | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
+| Phase 4B analytics | Provider webhook/event access if you want opened/replied tracking; otherwise manual outcome logging |
 | Phase 5 | Stripe test keys + price IDs; confirm plan prices/limits |
 | Phase 6 | Hosting choice and domain; production keys |
 

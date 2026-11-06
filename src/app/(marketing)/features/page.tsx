@@ -131,11 +131,11 @@ export default async function FeaturesPage() {
           </div>
 
           <Alert tone="warning" title="Current build status" className="mt-8 max-w-3xl">
-            This deployment currently includes the workspace, authentication, onboarding,
-            admin configuration, and the product UI. Live agent execution, lead-source
-            connections, and email delivery are enabled in later phases and will report their
-            real connection status inside the app. No demo leads or placeholder outreach are
-            created.
+            This deployment includes the workspace, authentication, onboarding, admin
+            configuration, lead management, campaigns, grounded agent execution, and
+            approval-gated outreach. Live provider calls and email delivery depend on server
+            keys and report their real status inside the app. Field verification and campaign
+            analytics are still pending. No demo leads or placeholder outreach are created.
           </Alert>
         </div>
       </section>

@@ -235,6 +235,8 @@ model BusinessProfile {
   phone               String?
   senderName          String?
   senderEmail         String?
+  // Required before outreach can be sent (CAN-SPAM sender identity). Never invented.
+  mailingAddress      String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
@@ -440,6 +442,9 @@ model OutreachMessage {
   sentAt                 DateTime?
   providerMessageId      String?
   unsubscribeTokenHash   String?
+  // Hash of the approved subject/body. Sending re-checks it so the message
+  // cannot change between approval and delivery.
+  approvedContentHash    String?
   failureReason          String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt

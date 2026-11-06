@@ -1,6 +1,6 @@
 # LeadPilot — Compliance and Data Policy
 
-Status: Phase 1 baseline · Last updated: 2026-10-29
+Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
 
 This document defines product rules. It is not legal advice; before launch, have counsel
 review the policy against the jurisdictions you sell into (GDPR/UK GDPR, CAN-SPAM, PECR,
@@ -59,15 +59,29 @@ separate and requires its own consent and unsubscribe handling.
 
 ## 4. Outreach requirements
 
-- Sender identity: verified from name, physical address, and reply-to for the workspace.
-- Every message includes a working unsubscribe link and a one-line reason for contact.
-- Approval: `MEMBER` drafts; `ADMIN`/`OWNER` approves by default (workspace policy can
-  allow self-approval only if the workspace enables it; never automatic).
-- Send caps: plan-level daily cap plus a workspace cap; new workspaces start conservatively.
-- Bounce/complaint handling: hard bounces and complaints are suppressed automatically when
-  the email provider reports them.
-- Record-keeping: who approved what content, when, to which address, and the provider
-  message ID.
+Implemented in Phase 4B and enforced server-side:
+
+- **Sender identity:** a workspace mailing address is required before approval, and the
+  sender name/email are appended from the workspace profile. The app refuses to approve
+  without an address rather than inventing one.
+- **Unsubscribe:** every message includes a signed one-click link that works without login.
+  The link is bound to one workspace/message/recipient; only its hash is stored. Confirming
+  adds a suppression entry and is idempotent. The message also includes the sender identity
+  and mailing address.
+- **Approval:** a `MEMBER` drafts; `ADMIN`/`OWNER` approves. Approval is bound to a SHA-256
+  hash of the exact subject and body, so any later edit revokes it. There is no automatic
+  send and no self-approval bypass.
+- **Send caps:** plan-level daily send allowance plus a per-campaign daily cap; both are
+  enforced atomically in the send path. Messages are refused if the campaign is not active.
+- **Suppression:** workspace-scoped list with manual add, CSV import, search, and removal.
+  Addresses are checked before drafting and again immediately before every send.
+- **Failure handling:** provider failures leave the message approved, record the real
+  reason, and release the reserved allowance. Successful sends store the provider message
+  ID and audit entry.
+- **Bounce/complaint handling:** recorded through the suppression list today; automatic
+  ingestion from provider webhooks remains pending.
+- **Record-keeping:** who approved what content hash and when, to which address, the
+  provider message ID, and linked lead activity/audit entries.
 - No misleading subject lines, fake replies, or spoofed sender identities.
 - The platform does not buy or sell lead data; customers export only data they are
   authorized to use.
@@ -96,9 +110,12 @@ separate and requires its own consent and unsubscribe handling.
 
 ## 7. Customer-facing controls
 
-- Suppression list: add/remove manually, import CSV, view reason/source/date.
-- Approval policy and send caps in workspace settings.
-- Sender identity and unsubscribe footer configuration.
+- Suppression list: add/remove manually, import CSV, view reason/source/date
+  (implemented at **Settings → Suppression**).
+- Approval and send caps enforced server-side; campaign daily caps are configurable
+  (implemented). A per-workspace approval-policy setting remains pending.
+- Sender identity, mailing address, and unsubscribe footer (implemented; address required
+  before approval).
 - Data export and deletion requests handled per plan and law.
 - Integration disconnection immediately stops provider access.
 - Clear in-product explanations of verification status and source limitations.
@@ -114,7 +131,7 @@ by a superadmin and recorded.
 
 - [ ] Privacy policy, terms, DPA, and cookie notice published and linked in the app.
 - [ ] Provider contracts reviewed; terms URLs recorded per source.
-- [ ] Suppression and unsubscribe tested end to end.
+- [x] Suppression and unsubscribe tested end to end (Phase 4B).
 - [ ] Email authentication configured (SPF, DKIM, DMARC) on the sending domain.
 - [ ] Retention and deletion jobs implemented and tested.
 - [ ] Audit log coverage verified for all privileged actions.

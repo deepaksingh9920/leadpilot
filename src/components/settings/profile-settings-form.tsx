@@ -36,6 +36,7 @@ export type ProfileDefaults = {
   description: string;
   valueProposition: string;
   phone: string;
+  mailingAddress: string;
   senderName: string;
   senderEmail: string;
 };
@@ -203,6 +204,21 @@ export function ProfileSettingsForm({ defaults }: { defaults: ProfileDefaults })
           </Field>
           <Field label="Phone" htmlFor="phone" error={errors?.phone?.[0]}>
             <TextInput id="phone" name="phone" defaultValue={defaults.phone} />
+          </Field>
+        </div>
+        <div className="mt-4">
+          <Field
+            label="Mailing address"
+            htmlFor="mailingAddress"
+            hint="Required before outreach can be approved. Included in every email footer."
+            error={errors?.mailingAddress?.[0]}
+          >
+            <TextInput
+              id="mailingAddress"
+              name="mailingAddress"
+              defaultValue={defaults.mailingAddress}
+              placeholder="123 Main St, Suite 100, City, State 00000"
+            />
           </Field>
         </div>
       </div>

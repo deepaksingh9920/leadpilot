@@ -45,7 +45,7 @@ export function NewCampaignForm() {
         label="Daily send cap"
         htmlFor="campaign-cap"
         error={state.fieldErrors?.dailySendCap?.[0]}
-        hint="Hard ceiling for any future sending. Sending is not enabled in this build."
+        hint="Hard ceiling for daily sends. Every message still needs approval."
       >
         <TextInput
           id="campaign-cap"

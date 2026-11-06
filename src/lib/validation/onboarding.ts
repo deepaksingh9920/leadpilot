@@ -61,6 +61,7 @@ export const profileSettingsSchema = onboardingSchema.extend({
     .min(2, "Enter a workspace name.")
     .max(100, "Workspace name is too long."),
   phone: optionalText(40),
+  mailingAddress: optionalText(300),
   senderName: optionalText(100),
   senderEmail: z
     .string()

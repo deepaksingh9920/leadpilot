@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 4A implemented · Last updated: 2026-11-05
+Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use
@@ -17,8 +17,10 @@ customer data.
 | Google Places lead discovery | Implemented |
 | CSV import with mapping and dedupe | Implemented (Phase 3) |
 | Lead Finder / Company Research / Lead Qualification executors | Implemented |
-| Email delivery | Not implemented; verification/reset email is still pending |
-| Outreach sending, approval, suppression | Not implemented by design |
+| Email delivery (verification, reset, outreach) | Implemented through Resend; requires keys |
+| Outreach drafting and approval gate | Implemented (Phase 4B) |
+| Suppression list and public unsubscribe | Implemented (Phase 4B) |
+| Campaign analytics and field verification | Pending |
 | Stripe billing | Not implemented; Free plan is created internally |
 
 `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor in this build.
@@ -94,20 +96,41 @@ mapping, and the server re-parses and re-validates the uploaded file before writ
 Duplicates are detected with the same dedupe key used by API sources. The importer
 requires the user to confirm they have the right to use the data and records provenance.
 
-## 5. Email sending (not implemented)
+## 5. Email sending and outreach
 
-Planned: Resend with a verified sending domain.
+Resend with a verified sending domain is the implemented adapter. It powers account
+verification, password reset, and approval-gated outreach.
 
 | Variable | Purpose |
 |---|---|
-| `EMAIL_PROVIDER` | `resend` (planned) |
-| `RESEND_API_KEY` | Resend API key |
-| `EMAIL_FROM` | Verified sender |
-| `EMAIL_REPLY_TO` | Reply-to address |
+| `RESEND_API_KEY` | Resend API key (server only) |
+| `EMAIL_FROM` | Verified sender, e.g. `LeadPilot <outreach@yourdomain.com>` |
+| `EMAIL_REPLY_TO` | Optional default reply-to; outreach prefers the workspace sender email |
+| `EMAIL_TIMEOUT_MS` | Request timeout (default 15000) |
 
-No outreach email is sent in this build. Approval, suppression, unsubscribe, and send
-limits remain future work. Account verification and password reset also depend on this
-provider; until it is configured those emails cannot be delivered.
+When the provider is not configured, the UI says delivery is unavailable. Account email
+cannot be sent, and outreach messages remain `APPROVED` with a `NOT_CONFIGURED` result;
+nothing is simulated.
+
+### Outreach safety rules enforced in code
+
+- Drafts use only stored workspace and lead facts (deterministic template), optionally
+  polished by the configured AI model; prompts forbid inventing contacts, facts, or sources.
+- Approval requires an admin/owner, a workspace mailing address, and a valid recipient.
+  Approval stores a SHA-256 hash of subject + body. Editing the content clears it.
+- A send re-checks the approval hash, active campaign status, campaign daily cap, plan
+  daily send allowance, and the suppression list before calling Resend.
+- Messages append the workspace mailing address and a signed one-click unsubscribe link.
+  The token is an HMAC-signed payload bound to workspace, message, and recipient; only
+  `sha256(token)` is stored on the message.
+- Provider failures restore `APPROVED`, record the honest reason, and release the reserved
+  send allowance. Successful sends store the provider message ID, timestamp, and audit row.
+- Suppression is workspace-scoped and is checked before a draft is created and again at
+  send time. Hard bounces, complaints, and unsubscribes can be recorded through the
+  suppression list, CSV import, or the public unsubscribe page.
+
+Public unsubscribe URL shape: `{APP_URL}/unsubscribe/{token}`. The page requires no login,
+shows a masked address, and is idempotent.
 
 ## 6. Billing (not implemented)
 
@@ -177,7 +200,12 @@ The Integrations page reports the active lead source and each provider's actual 
 5. Before enabling execution, confirm the provider terms permit your prospecting use.
 6. Set `AGENT_RUNTIME_READY=true` only when both the AI provider and lead source are ready.
 7. Queue a Lead Finder run with a small limit, then inspect the run steps and stored leads.
-8. Keep outreach sending disabled until approval, suppression, and unsubscribe are built.
+8. Add `RESEND_API_KEY` and `EMAIL_FROM` for account email and outreach delivery, and save a
+   workspace mailing address in **Settings**.
+9. Generate an outreach draft, inspect the exact preview, approve it, then send with a small
+   campaign daily cap and confirm the Resend response and unsubscribe link.
+10. Import any existing do-not-contact addresses into **Settings → Suppression** before
+    sending.
 
 ## 12. Data handling notes
 
@@ -189,3 +217,7 @@ The Integrations page reports the active lead source and each provider's actual 
   transaction and releases unused plan capacity.
 - Qualification preserves statuses a person set (`CONTACTED`, `CONVERTED`) even when the
   model suggests a different stage.
+- Outreach stores only the SHA-256 hash of each unsubscribe token, never the token itself.
+  Suppression entries keep the normalized address, reason, source, and timestamp.
+- Message bodies, approval hashes, approver ID, provider message ID, and failure reasons are
+  retained for the audit trail. Nothing is sent when the provider is unconfigured.

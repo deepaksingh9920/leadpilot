@@ -56,6 +56,9 @@ const ACTIVITY_LABELS: Record<string, string> = {
   RESEARCHED: "Researched",
   QUALIFIED: "Qualified",
   OUTREACH_DRAFTED: "Outreach drafted",
+  OUTREACH_APPROVED: "Outreach approved",
+  OUTREACH_SENT: "Outreach sent",
+  UNSUBSCRIBED: "Unsubscribed",
 };
 
 function parseTags(raw: string): string[] {
@@ -522,8 +525,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </Card>
 
           <Alert tone="shield" title="Approval required before sending">
-            Outreach is draft-only in this build. Connecting an email provider and approving a
-            message are separate, audited steps that ship with the outreach phase.
+            Outreach starts as a grounded draft. An admin must approve the exact subject and body,
+            and sending also requires a configured email provider, a clean suppression check, and an
+            active campaign.
           </Alert>
         </div>
       </div>

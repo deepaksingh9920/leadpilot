@@ -51,7 +51,13 @@ export function createTempDatabase(): {
  */
 export async function createTestTenant(
   db: import("@prisma/client").PrismaClient,
-  options: { key: string; leadLimit?: number; runLimit?: number; exportLimit?: number },
+  options: {
+    key: string;
+    leadLimit?: number;
+    runLimit?: number;
+    exportLimit?: number;
+    sendLimit?: number;
+  },
 ) {
   const suffix = `${options.key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const user = await db.user.create({
@@ -73,6 +79,7 @@ export async function createTestTenant(
           { metric: "leads_per_month", limit: options.leadLimit ?? 100 },
           { metric: "agent_runs_per_month", limit: options.runLimit ?? 10 },
           { metric: "exports_per_month", limit: options.exportLimit ?? 5 },
+          { metric: "sends_per_day", limit: options.sendLimit ?? 20 },
         ],
       },
     },

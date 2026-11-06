@@ -7,10 +7,14 @@ type SendEmailInput = {
   subject: string;
   html: string;
   text: string;
+  /** Defaults to EMAIL_FROM. Must be on a verified sending domain. */
+  from?: string;
+  /** Defaults to EMAIL_REPLY_TO. */
+  replyTo?: string;
 };
 
 export type EmailResult =
-  | { ok: true }
+  | { ok: true; providerMessageId?: string }
   | { ok: false; reason: "not_configured" | "provider_error"; message: string };
 
 export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
@@ -31,9 +35,9 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: env.emailFrom,
+        from: input.from ?? env.emailFrom,
         to: [input.to],
-        reply_to: env.emailReplyTo,
+        reply_to: input.replyTo ?? env.emailReplyTo,
         subject: input.subject,
         html: input.html,
         text: input.text,
@@ -54,7 +58,7 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
       };
     }
 
-    return { ok: true };
+    return { ok: true, providerMessageId: readMessageId(await response.json().catch(() => null)) };
   } catch (error) {
     console.error("Email delivery failed", error);
     return {
@@ -63,6 +67,12 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
       message: "The email provider could not be reached. Try again shortly.",
     };
   }
+}
+
+function readMessageId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 function layout(title: string, body: string, footer: string): string {

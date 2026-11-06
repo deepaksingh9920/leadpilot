@@ -164,9 +164,9 @@ export default async function CampaignsPage() {
             Current status
           </h2>
           <p className="mt-3 text-[12px] leading-relaxed text-muted">
-            Campaign creation, lead assignment, status, and daily caps are live. Sending is not:
-            it requires a configured email provider, approval, and unsubscribe handling, which
-            ship with the outreach phase. Nothing can be sent by accident.
+            Campaign creation, lead assignment, status, and daily caps are live. Outreach messages
+            are grounded in stored facts and require admin approval. Every send also enforces the
+            suppression list, signed unsubscribe links, and both daily caps.
           </p>
           <Link
             href="/integrations"

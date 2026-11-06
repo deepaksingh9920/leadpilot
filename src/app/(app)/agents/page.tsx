@@ -196,7 +196,7 @@ export default async function AgentsPage() {
       <Card>
         <CardHeader
           title="How execution works"
-          description="The configuration is live; the runtime is a later phase."
+          description="Lead Finder, Company Research, and Lead Qualification execute today; the rest report their real configuration state."
           action={<SlidersHorizontal className="size-4 text-muted" aria-hidden="true" />}
         />
         <div className="grid gap-4 p-5 md:grid-cols-3">

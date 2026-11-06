@@ -4,13 +4,16 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 4A complete.** Workspace, authentication, onboarding, plan limits, admin
-> configuration, lead management (CSV import, dedupe, provenance, export), campaign
-> scaffolding, the queue/worker job system, and grounded agent execution are implemented
-> and verified. Lead discovery can use Apollo, People Data Labs, or Google Places, and
-> research/qualification use an OpenAI-compatible model — all behind server-side flags and
-> keys. Email delivery, billing, and outreach sending remain later phases and stay off until
-> configured. LeadPilot never fabricates leads, contact details, company facts, or sources.
+> **Status: Phase 4B outreach safety complete.** Workspace, authentication, onboarding, plan
+> limits, admin configuration, lead management (CSV import, dedupe, provenance, export),
+> campaigns, the queue/worker job system, grounded agent execution, and approval-gated
+> outreach are implemented and verified. Lead discovery can use Apollo, People Data Labs, or
+> Google Places, research/qualification use an OpenAI-compatible model, and outreach drafts
+> are grounded in stored facts with template fallbacks. Every send requires an admin
+> approval bound to a content hash, re-checks the suppression list, and carries a signed
+> one-click unsubscribe link plus the workspace mailing address. Field-level verification,
+> campaign analytics, billing, and follow-up agents remain later phases. LeadPilot never
+> fabricates leads, contact details, company facts, or sources.
 
 ## Stack
 
@@ -20,7 +23,7 @@ every send waits for a human decision.
 | UI | React 19, TypeScript strict, Tailwind CSS v4, Recharts, lucide-react |
 | Data | Prisma 6 + SQLite locally (Postgres planned for production) |
 | Auth | Custom bcrypt credentials, hashed DB sessions, DB-backed rate limits |
-| Email | Resend adapter planned for verification, reset, and outreach |
+| Email | Resend adapter for verification, reset, and approval-gated outreach |
 | Tests | Vitest |
 
 ## Quick start
@@ -68,8 +71,11 @@ configured:
 - `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` — permitted lead sources.
   `PRIMARY_LEAD_SOURCE` picks one explicitly; with no explicit choice, exactly one
   configured key is used, and multiple keys fail closed. CSV import always works.
-- `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery (not
-  implemented yet; those flows report that delivery is unconfigured).
+- `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery. Without
+  them the UI reports delivery is unconfigured and outreach messages stay approved; nothing
+  is simulated. Sends also require a workspace mailing address in **Settings**.
+- `EMAIL_REPLY_TO` — optional default reply-to; outreach prefers the workspace sender
+  email when one is set.
 - `STRIPE_*` — subscription checkout and plan changes (not implemented yet).
 - `WORKER_SECRET` — authenticates `POST /api/worker/run`; the endpoint returns 503 while
   it is unset.
@@ -122,9 +128,9 @@ profile used as ground truth for later agent work and unlocks the dashboard on c
 **Workspace** — responsive shell with workspace switcher, dashboard stats and 30-day lead
 chart backed by real queries, searchable/filterable/sortable leads, CSV import with column
 mapping and row-level reports, lead detail with evidence and activity, campaign creation and
-detail, agent catalog and detail with runtime gating, run detail with step logs, integration
-status, settings (profile, password, team, usage), and a superadmin console for plans,
-limits, agent catalog, and platform audit.
+detail with an outreach pipeline, agent catalog and detail with runtime gating, run detail
+with step logs, integration status, settings (profile, password, team, usage, suppression
+list), and a superadmin console for plans, limits, agent catalog, and platform audit.
 
 **Lead data** — discovery calls the configured provider (Apollo, People Data Labs, or
 Google Places) and stores only fields the provider returned, with provider record ID,
@@ -146,14 +152,28 @@ Runs reserve plan usage up front and refund it on cancellation or permanent fail
 Execution is gated by `AGENT_RUNTIME_READY` and the configured provider; with no keys, the
 UI and server report the missing configuration instead of simulating a run.
 
+**Outreach** — campaign leads move through an outreach pipeline (`ADDED` → `DRAFTED` →
+`APPROVED` → `SENT`, plus `FAILED`/`CANCELLED`). Drafts use deterministic templates built
+only from stored workspace and lead facts, with an optional AI draft path when the model is
+configured. An admin or owner approves the exact subject and body; approval stores a
+SHA-256 content hash and any later edit revokes it. Sending re-checks the hash, the
+suppression list, campaign status, the campaign daily cap, and the plan's daily send
+allowance before calling Resend. Messages append the workspace mailing address and a signed
+one-click unsubscribe link. Provider failures leave the message approved and release the
+reserved allowance; successful sends record the provider message ID and audit entry.
+**Settings → Suppression** supports manual add, CSV import, search, and removal, and the
+public unsubscribe page works without an account and is idempotent.
+
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
-logs for sensitive actions, security headers, and server-side limit checks. No outreach
-can be sent in this build; the approval gate and send plumbing land in later phases.
+logs for sensitive actions, security headers, and server-side limit checks. Outreach cannot
+be sent without an admin approval, and suppressed addresses are blocked at draft time and
+again immediately before delivery.
 
 ## Not implemented yet
 
-- Email sending pipeline: account verification/reset, outreach approval, suppression list,
-  unsubscribe handling, and campaign analytics (Phase 4B).
+- Field-level verification across sources (`LeadFieldVerification` cross-checks).
+- Campaign analytics: sent/opened/replied/meetings and recommendations.
+- Follow-up agent: due-date queue and reminders (no auto-send).
 - Stripe checkout, webhooks, and paid plan changes.
 - Team invitations.
 - Postgres deployment and production hardening.
@@ -171,28 +191,34 @@ src/
     (marketing)/     Landing, features, pricing
     (auth)/          Login, signup, reset, verification
     (app)/           Dashboard, leads (import/detail), campaigns
-                     (new/detail), agents, runs, integrations,
-                     settings, admin
+                     (new/detail/messages), agents, runs, integrations,
+                     settings (incl. suppression), admin
     api/             CSV export and worker endpoints
     onboarding/      Three-step setup wizard
+    unsubscribe/     Public signed unsubscribe page
   components/
     app/             Shell, navigation, charts
     auth/            Auth forms
+    campaigns/       Campaign and outreach forms
     marketing/       Marketing sections
     onboarding/      Wizard
-    settings/        Settings forms
+    settings/        Settings and suppression forms
+    unsubscribe/     Public unsubscribe form
     ui/              Buttons, inputs, cards, badges, alerts
   lib/
     agents/          Runtime gating, output schemas, input schemas
     auth/            Sessions, roles, rate limits, audit
+    email/           Resend adapter
     jobs/            Queue policy, leases, retry backoff
     leads/           Import mapping and dedupe
+    outreach/        Grounded templates, approval hash, signed tokens
     providers/       Apollo, PDL, Google Places, AI, selection
     csv.ts           CSV parse/serialize
     validation/      Zod schemas
   server/
     actions/         Server actions (auth, onboarding, leads,
-                     imports, campaigns, agents, settings, admin)
+                     imports, campaigns, agents, outreach,
+                     suppression, settings, admin)
     services/        Data access and domain services
   test/              Throwaway database fixtures
 prisma/
@@ -209,12 +235,14 @@ npm run test
 
 Unit tests cover CSV parsing, import mapping and dedupe rules, agent input/output schemas,
 runtime gating, job policy, validation, role hierarchy, rate-limit behavior, formatting
-helpers, and provider request shaping/normalization/error mapping for Apollo, PDL, Google
-Places, and the AI adapter. Database integration tests create a throwaway SQLite database
-with `prisma db push` and exercise the real import, job, and agent-executor services,
-including transactions, unique constraints, retries, cancellation, usage refunds, grounded
-research, qualification status preservation, and invalid-output retries. The suite is
-**19 files / 133 tests**. Before shipping any change, also run `npm run lint`,
+helpers, grounded outreach templates and approval hashes, unsubscribe token signing, and
+provider request shaping/normalization/error mapping for Apollo, PDL, Google Places, and the
+AI adapter. Database integration tests create a throwaway SQLite database with
+`prisma db push` and exercise the real import, job, agent-executor, outreach, suppression,
+and unsubscribe services, including transactions, unique constraints, retries,
+cancellation, usage refunds, approval hash revocation, suppression at draft and send time,
+provider failures with allowance release, the Resend payload, and public unsubscribe. The
+suite is **24 files / 177 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

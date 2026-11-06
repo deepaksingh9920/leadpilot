@@ -53,12 +53,13 @@ const REQUIREMENTS: Record<string, Requirement> = {
   EMAIL_OUTREACH: {
     provider: "ai",
     setupKey: "AI_API_KEY, AI_MODEL",
-    setupHint: "Outreach drafting and approval arrive with the outreach phase.",
+    setupHint:
+      "Autonomous email drafting has no executor yet; campaign drafts are prepared and approved manually.",
   },
   FOLLOW_UP: {
     provider: "ai",
     setupKey: "AI_API_KEY, AI_MODEL",
-    setupHint: "Follow-up scheduling arrives with the outreach phase.",
+    setupHint: "Follow-up scheduling has no executor yet; reminders are not automated.",
   },
 };
 
