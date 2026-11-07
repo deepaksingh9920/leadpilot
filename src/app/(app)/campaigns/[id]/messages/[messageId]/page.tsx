@@ -13,6 +13,7 @@ import {
   ApproveOutreachForm,
   CancelOutreachForm,
   OutreachEditorForm,
+  OutreachOutcomeForm,
   SendOutreachForm,
 } from "@/components/campaigns/outreach-forms";
 import { Alert } from "@/components/ui/alert";
@@ -21,7 +22,13 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { canApproveOutreach, requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { formatDate } from "@/lib/utils";
-import { getOutreachMessageDetail, OUTREACH_STATUS_LABELS } from "@/server/services/outreach";
+import {
+  getOutreachMessageDetail,
+  OUTREACH_OUTCOME_LABELS,
+  OUTREACH_OUTCOMES,
+  OUTREACH_STATUS_LABELS,
+} from "@/server/services/outreach";
+import { VERIFICATION_LABELS } from "@/server/services/leads";
 
 export const metadata = { title: "Outreach message" };
 
@@ -31,6 +38,7 @@ const STATUS_TONES: Record<string, "success" | "warning" | "danger" | "neutral" 
   SENDING: "warning",
   SCHEDULED: "warning",
   SENT: "success",
+  BOUNCED: "danger",
   FAILED: "danger",
   CANCELLED: "neutral",
 };
@@ -56,6 +64,13 @@ export default async function OutreachMessagePage({
   const editable = canEdit && ["DRAFT", "APPROVED"].includes(message.status);
   const canCancel = canEdit && !["SENT", "CANCELLED", "SENDING"].includes(message.status);
   const statusLabel = OUTREACH_STATUS_LABELS[message.status] ?? message.status;
+  const emailVerification = message.lead.verifications[0] ?? null;
+  const canRecordOutcome = canEdit && ["SENT", "BOUNCED"].includes(message.status);
+  const outcomeOptions = OUTREACH_OUTCOMES.filter((outcome) => {
+    if (outcome === "REPLIED") return !message.repliedAt && message.status !== "BOUNCED";
+    if (outcome === "MEETING") return !message.meetingAt && message.status !== "BOUNCED";
+    return !message.bouncedAt;
+  }).map((outcome) => ({ value: outcome, label: OUTREACH_OUTCOME_LABELS[outcome] }));
 
   return (
     <div className="space-y-6">
@@ -103,6 +118,16 @@ export default async function OutreachMessagePage({
         <Alert tone="success" title="Delivered to the email provider">
           The approval, exact content hash, provider message ID, and unsubscribe token are recorded.
           Unsubscribes are processed without a login through the signed link in the footer.
+        </Alert>
+      ) : null}
+
+      {emailVerification?.status !== "VERIFIED" ? (
+        <Alert tone="warning" title="Recipient email is not verified">
+          {emailVerification
+            ? `A human check recorded this address as ${(
+                VERIFICATION_LABELS[emailVerification.status] ?? emailVerification.status
+              ).toLowerCase()}. Confirm it before relying on delivery.`
+            : "No human field check is recorded for this address. Provider-supplied data alone is not verification."}
         </Alert>
       ) : null}
 
@@ -236,6 +261,56 @@ export default async function OutreachMessagePage({
               ) : null}
             </div>
           </Card>
+
+          {["SENT", "BOUNCED"].includes(message.status) ? (
+            <Card>
+              <CardHeader
+                title="Outcomes"
+                description="Manual records only. Opens are not tracked because no email webhook is connected."
+                action={<Mail className="size-4 text-muted" aria-hidden="true" />}
+              />
+              <div className="space-y-4 px-5 py-4">
+                <dl className="space-y-2 text-[12px]">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Replied</dt>
+                    <dd className="font-medium text-ink">
+                      {message.repliedAt ? formatDate(message.repliedAt) : "Not recorded"}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Meeting</dt>
+                    <dd className="font-medium text-ink">
+                      {message.meetingAt ? formatDate(message.meetingAt) : "Not recorded"}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted">Hard bounce</dt>
+                    <dd className="font-medium text-ink">
+                      {message.bouncedAt ? formatDate(message.bouncedAt) : "Not recorded"}
+                    </dd>
+                  </div>
+                </dl>
+
+                {message.outcomeNote ? (
+                  <p className="rounded-lg border border-line bg-canvas/50 px-3 py-2 text-[11px] leading-relaxed text-ink-soft">
+                    {message.outcomeNote}
+                  </p>
+                ) : null}
+
+                {canRecordOutcome ? (
+                  <OutreachOutcomeForm
+                    messageId={message.id}
+                    campaignId={campaignId}
+                    options={outcomeOptions}
+                  />
+                ) : (
+                  <p className="text-[11px] leading-relaxed text-muted">
+                    Only workspace members can record an outcome, and only after the message is sent.
+                  </p>
+                )}
+              </div>
+            </Card>
+          ) : null}
 
           <Card className="p-5">
             <h2 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">

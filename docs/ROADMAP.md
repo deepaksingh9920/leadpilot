@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 4B outreach safety complete — verified drafts, approval-gated sends, suppression, unsubscribe · Last updated: 2026-11-06
+Status: Phase 4B verification and analytics complete — verified drafts, approval-gated sends, suppression, unsubscribe, human field checks, manual outcomes · Last updated: 2026-11-07
 
 ## Working rules
 
@@ -223,8 +223,8 @@ Known limitations:
 - Live provider calls require real Apollo/PDL/Google Places keys, an AI key/model, and
   `AGENT_RUNTIME_READY=true`. Adapter tests use injected stubs and never contact a
   provider.
-- Phase 4B now implements approval-gated outreach, suppression, and unsubscribe; field
-  verification and analytics remain pending.
+- Phase 4B now implements approval-gated outreach, suppression, unsubscribe, human field
+  verification, and manual outcome analytics.
 - `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor and remain
   disabled.
 
@@ -284,29 +284,62 @@ Browser QA (desktop):
 Known limitations:
 - Live sending requires `RESEND_API_KEY`, `EMAIL_FROM`, and ideally a verified sending
   domain. Account verification/reset email stays unavailable until then.
-- Field-level verification and campaign analytics remain pending.
+- Field-level verification and campaign analytics were completed in the Phase 4B
+  continuation below.
 - `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` still have no executors.
 
 Depends on: Phase 4A, verified email domain, provider terms acceptance.
 
-## Phase 4B (continued) — Field verification and campaign analytics (pending)
+## Phase 4B (continued) — Field verification and campaign analytics (complete)
 
 Build:
-1. Field-level verification: cross-check provider values where the contract allows, record
-   `LeadFieldVerification`, surface freshness and source on every field. Values that cannot
-   be cross-checked stay marked unverified.
-2. Campaign analytics: sent/opened/replied/meetings from provider webhooks or manual
-   outcome logging; recommendations grounded in campaign data.
-3. Follow-up agent: due-date queue and reminders; no auto-send without approval.
+- [x] Field-level verification: an admin records a `LeadFieldVerification` result per field
+  (verified, partially verified, unverified) with an optional evidence URL and note. The
+  overall lead status is derived from populated fields, never from provider claims. Values
+  that were not checked stay unverified.
+- [x] Campaign analytics: sent, replied, meeting, and bounced counts plus reply/meeting rates
+  built from recorded sends and manual outcome logging. Open tracking is explicitly absent
+  because no provider webhook is connected.
+- [x] Manual outcomes: `REPLIED`, `MEETING`, and `BOUNCED` are recorded by a member with an
+  optional note. Each writes lead activity and an audit entry; a hard bounce adds a
+  `BOUNCED` suppression entry.
+- [ ] Follow-up agent: due-date queue and reminders; no auto-send without approval. This
+  remains for a later phase.
 
 Acceptance criteria:
-- Provider values that cannot be cross-checked stay marked as unverified rather than being
-  shown as verified.
-- Analytics distinguish observed events from manual outcome logging and never invent
-  opens/replies.
-- Follow-up reminders cannot send without a fresh human approval.
+- [x] Provider values that cannot be cross-checked stay marked as unverified rather than
+  being shown as verified.
+- [x] Analytics distinguish recorded sends and manual outcomes from observed provider events
+  and never invent opens/replies.
+- [x] Hard bounces block future sends through the suppression list.
+- [ ] Follow-up reminders cannot send without a fresh human approval (pending the executor).
 
-Depends on: Phase 4B outreach safety, live/test credentials, verified email domain.
+Depends on: Phase 4B outreach safety. Provider-webhook tracking additionally depends on
+live/test credentials and a verified email domain.
+
+### Phase 4B continuation verification (2026-11-07)
+
+Automated:
+- [x] `npm run test`: 25 files, 187 tests. New suites cover manual reply/meeting/bounce
+  outcomes, idempotent recording, bounce suppression, rejection before send and after a
+  bounce, campaign analytics counts and rates, and human field verification (derivation,
+  upsert, invalid fields/statuses/evidence URLs, and tenant isolation).
+- [x] `npm run typecheck`, `npm run lint`, and `npm run build` pass.
+
+Browser QA (desktop):
+- [x] Campaign detail shows sent/replied/meeting/bounce counts, reply/meeting rates, and an
+  explicit "opens are not tracked" note.
+- [x] Recorded a manual reply on a sent message; the message page showed the timestamp and
+  note, removed the replied option, and campaign analytics updated to 1 reply / 100%.
+- [x] The message page warned that the recipient email was not verified, then removed the
+  warning after an admin recorded a `contactEmail` field check.
+- [x] Recorded a field check with an evidence URL; the lead's overall status recalculated to
+  Partially verified and the activity timeline logged it. Zero console errors.
+
+Known limitations:
+- Provider webhook ingestion for opens/replies is not connected; outcomes are manual.
+- Field verification is a human attestation. It depends on the reviewer actually checking
+  the value; the product does not automate cross-source verification.
 
 ## Phase 5 — Billing, limits, admin, compliance safeguards
 
@@ -375,7 +408,7 @@ Depends on: Phase 5 and production credentials/domain.
 | Phase 3 | Decide primary lead-source provider and confirm its terms permit your intended use |
 | Phase 4A | API keys in `.env.local`: AI model and at least one lead source (`APOLLO_API_KEY`, `PDL_API_KEY`, or `GOOGLE_PLACES_API_KEY`) |
 | Phase 4B outreach safety | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
-| Phase 4B analytics | Provider webhook/event access if you want opened/replied tracking; otherwise manual outcome logging |
+| Phase 4B analytics | Provider webhook/event access if you want automatic opened/replied tracking; manual outcome logging works without it |
 | Phase 5 | Stripe test keys + price IDs; confirm plan prices/limits |
 | Phase 6 | Hosting choice and domain; production keys |
 

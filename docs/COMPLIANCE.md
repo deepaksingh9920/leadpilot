@@ -1,6 +1,6 @@
 # LeadPilot — Compliance and Data Policy
 
-Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
+Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
 
 This document defines product rules. It is not legal advice; before launch, have counsel
 review the policy against the jurisdictions you sell into (GDPR/UK GDPR, CAN-SPAM, PECR,
@@ -78,8 +78,18 @@ Implemented in Phase 4B and enforced server-side:
 - **Failure handling:** provider failures leave the message approved, record the real
   reason, and release the reserved allowance. Successful sends store the provider message
   ID and audit entry.
-- **Bounce/complaint handling:** recorded through the suppression list today; automatic
-  ingestion from provider webhooks remains pending.
+- **Bounce/complaint handling:** a manually recorded hard bounce sets the message to
+  `BOUNCED`, adds a workspace suppression entry with reason `BOUNCED`, and blocks future
+  sends to that address. Complaint handling uses the suppression list; automatic ingestion
+  from provider webhooks remains pending.
+- **Outcome logging:** replies and meetings are recorded manually by a workspace member with
+  an optional note. Each outcome writes lead activity and an audit entry. The product never
+  infers a reply, meeting, or open from silence.
+- **Analytics:** reply and meeting rates count only recorded sends and manual outcomes.
+  Opens are explicitly reported as untracked because no email provider webhook is connected.
+- **Verification:** field checks are human attestations by an admin with optional evidence.
+  The overall lead status is derived from populated fields; provider data alone never marks
+  a field verified.
 - **Record-keeping:** who approved what content hash and when, to which address, the
   provider message ID, and linked lead activity/audit entries.
 - No misleading subject lines, fake replies, or spoofed sender identities.
@@ -132,6 +142,7 @@ by a superadmin and recorded.
 - [ ] Privacy policy, terms, DPA, and cookie notice published and linked in the app.
 - [ ] Provider contracts reviewed; terms URLs recorded per source.
 - [x] Suppression and unsubscribe tested end to end (Phase 4B).
+- [x] Field verification and manual outcome analytics tested (Phase 4B continuation).
 - [ ] Email authentication configured (SPF, DKIM, DMARC) on the sending domain.
 - [ ] Retention and deletion jobs implemented and tested.
 - [ ] Audit log coverage verified for all privileged actions.

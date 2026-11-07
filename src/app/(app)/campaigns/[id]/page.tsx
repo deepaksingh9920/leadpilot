@@ -24,6 +24,7 @@ import { CreateOutreachDraftForm } from "@/components/campaigns/outreach-forms";
 import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { formatDate } from "@/lib/utils";
 import { removeCampaignLeadAction } from "@/server/actions/campaigns";
+import { getCampaignAnalytics } from "@/server/services/campaign-analytics";
 import { getCampaignDetail, getQualifiedLeadOptions } from "@/server/services/leads";
 import { getCampaignOutreachState } from "@/server/services/outreach";
 import {
@@ -46,6 +47,7 @@ const MESSAGE_TONES: Record<string, "success" | "warning" | "danger" | "neutral"
   SENDING: "warning",
   SCHEDULED: "warning",
   SENT: "success",
+  BOUNCED: "danger",
   FAILED: "danger",
   CANCELLED: "neutral",
 };
@@ -67,6 +69,7 @@ export default async function CampaignDetailPage({
   const memberIds = new Set(campaign.leads.map((row) => row.lead.id));
   const availableOptions = qualifiedOptions.filter((option) => !memberIds.has(option.id));
   const outreachRows = (await getCampaignOutreachState(context.workspace.id, campaign.id)) ?? [];
+  const analytics = await getCampaignAnalytics(context.workspace.id, campaign.id);
   const suppressed = await getSuppressedEmails(
     context.workspace.id,
     outreachRows
@@ -95,6 +98,17 @@ export default async function CampaignDetailPage({
     { label: "Approved", value: funnel.approved, icon: CheckCircle2 },
     { label: "Sent", value: funnel.sent, icon: Target },
   ];
+
+  const resultStats = analytics
+    ? [
+        { label: "Sent", value: analytics.sent.toLocaleString() },
+        { label: "Replied", value: analytics.replied.toLocaleString() },
+        { label: "Meetings", value: analytics.meetings.toLocaleString() },
+        { label: "Bounced", value: analytics.bounced.toLocaleString() },
+        { label: "Reply rate", value: `${analytics.replyRate}%` },
+        { label: "Meeting rate", value: `${analytics.meetingRate}%` },
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -142,6 +156,30 @@ export default async function CampaignDetailPage({
           </div>
         ))}
       </div>
+
+      {analytics ? (
+        <Card>
+          <CardHeader
+            title="Campaign results"
+            description="Counts come from recorded sends and outcomes your team logged manually."
+            action={<Target className="size-4 text-muted" aria-hidden="true" />}
+          />
+          <div className="grid grid-cols-2 gap-3 px-5 py-4 sm:grid-cols-3 lg:grid-cols-6">
+            {resultStats.map((stat) => (
+              <div key={stat.label} className="rounded-xl border border-line bg-canvas/40 px-3 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
+                  {stat.label}
+                </p>
+                <p className="mt-1 font-display text-xl font-semibold text-ink">{stat.value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="border-t border-line px-5 py-3 text-[11px] leading-relaxed text-muted">
+            Opens are not tracked: no email provider webhook is connected, so no open events are
+            observed or inferred. Record a reply, meeting, or hard bounce from the message page.
+          </p>
+        </Card>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
         <div className="space-y-6">

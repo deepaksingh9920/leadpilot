@@ -8,6 +8,7 @@ import { getAuthContext, roleAtLeast } from "@/lib/auth/workspace";
 import { formString, type FormState } from "@/lib/form";
 import { writeAuditLog } from "@/lib/auth/audit";
 import { LEAD_STATUSES, type LeadStatus } from "@/server/services/leads";
+import { setLeadFieldVerification } from "@/server/services/verification";
 
 async function loadLead(workspaceId: string, leadId: string) {
   return db.lead.findFirst({
@@ -108,6 +109,40 @@ export async function saveLeadNotesAction(
 
   revalidatePath(`/leads/${lead.id}`);
   return { status: "success", message: "Notes saved." };
+}
+
+export async function setLeadFieldVerificationAction(
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const context = await getAuthContext();
+  if (!context?.workspace) {
+    return { status: "error", message: "Your session expired. Sign in and try again." };
+  }
+  if (!roleAtLeast(context.role, "ADMIN")) {
+    return { status: "error", message: "Only workspace admins can record field verification." };
+  }
+
+  const leadId = formString(formData, "leadId");
+  if (!leadId) return { status: "error", message: "Lead not found." };
+
+  const result = await setLeadFieldVerification({
+    workspaceId: context.workspace.id,
+    actorId: context.user.id,
+    leadId,
+    field: formString(formData, "field"),
+    status: formString(formData, "status"),
+    sourceUrl: formString(formData, "sourceUrl"),
+    note: formString(formData, "note"),
+  });
+  if (!result.ok) return { status: "error", message: result.message };
+
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  return {
+    status: "success",
+    message: "Field check saved. The lead's overall verification status was recalculated.",
+  };
 }
 
 export async function deleteLeadAction(formData: FormData): Promise<void> {

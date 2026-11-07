@@ -9,6 +9,7 @@ import {
   approveOutreachMessageAction,
   cancelOutreachMessageAction,
   createOutreachDraftAction,
+  recordOutreachOutcomeAction,
   sendOutreachMessageAction,
   updateOutreachDraftAction,
 } from "@/server/actions/outreach";
@@ -220,6 +221,61 @@ export function CancelOutreachForm({
         Cancel message
       </SubmitButton>
       <FormMessage status={state.status} message={state.message} />
+    </form>
+  );
+}
+
+export function OutreachOutcomeForm({
+  messageId,
+  campaignId,
+  options,
+}: {
+  messageId: string;
+  campaignId: string;
+  options: { value: string; label: string }[];
+}) {
+  const [state, formAction] = useActionState(recordOutreachOutcomeAction, initialFormState);
+
+  if (options.length === 0) {
+    return (
+      <p className="text-[11px] leading-relaxed text-muted">
+        Every outcome available for this message has already been recorded.
+      </p>
+    );
+  }
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="messageId" value={messageId} />
+      <input type="hidden" name="campaignId" value={campaignId} />
+      <Field
+        label="Outcome"
+        htmlFor="outcome-value"
+        hint="Recorded manually from a real reply, calendar booking, or bounce notice."
+      >
+        <Select id="outcome-value" name="outcome" defaultValue={options[0]!.value}>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Note" htmlFor="outcome-note" hint="Optional. Where the outcome was observed.">
+        <Textarea
+          id="outcome-note"
+          name="note"
+          className="min-h-20"
+          maxLength={500}
+          placeholder="e.g. Reply received in the shared inbox on Tuesday."
+        />
+      </Field>
+      <FormMessage status={state.status} message={state.message} />
+      <div className="flex justify-end">
+        <SubmitButton size="sm" variant="secondary" pendingLabel="Recording…">
+          Record outcome
+        </SubmitButton>
+      </div>
     </form>
   );
 }

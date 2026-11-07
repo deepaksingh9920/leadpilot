@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { buttonClasses } from "@/components/ui/button";
 import { DeleteLeadForm } from "@/components/leads/delete-lead-form";
+import { FieldVerificationForm } from "@/components/leads/field-verification-form";
 import { LeadNotesForm } from "@/components/leads/lead-notes-form";
 import { LeadStatusForm } from "@/components/leads/lead-status-form";
 import { roleAtLeast, requireWorkspace } from "@/lib/auth/workspace";
@@ -30,6 +31,10 @@ import {
   LEAD_STATUS_LABELS,
   VERIFICATION_LABELS,
 } from "@/server/services/leads";
+import {
+  VERIFIABLE_FIELD_LABELS,
+  VERIFIABLE_FIELDS,
+} from "@/server/services/verification";
 
 export const metadata = { title: "Lead detail" };
 
@@ -55,9 +60,13 @@ const ACTIVITY_LABELS: Record<string, string> = {
   CREATED: "Created",
   RESEARCHED: "Researched",
   QUALIFIED: "Qualified",
+  FIELD_VERIFIED: "Field verified",
   OUTREACH_DRAFTED: "Outreach drafted",
   OUTREACH_APPROVED: "Outreach approved",
   OUTREACH_SENT: "Outreach sent",
+  OUTREACH_REPLIED: "Outreach replied",
+  OUTREACH_MEETING: "Meeting booked",
+  OUTREACH_BOUNCED: "Outreach bounced",
   UNSUBSCRIBED: "Unsubscribed",
 };
 
@@ -130,6 +139,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const tags = parseTags(lead.tags);
   const canEdit = roleAtLeast(context.role, "MEMBER");
   const canDelete = roleAtLeast(context.role, "ADMIN");
+  const canVerify = roleAtLeast(context.role, "ADMIN");
+  const verifiableOptions = VERIFIABLE_FIELDS.filter((field) => {
+    const value = lead[field];
+    return typeof value === "string" && value.trim().length > 0;
+  }).map((field) => ({ value: field, label: VERIFIABLE_FIELD_LABELS[field] ?? field }));
 
   return (
     <div className="space-y-6">
@@ -316,7 +330,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <Card>
             <CardHeader
               title="Verification records"
-              description="Field-level evidence collected from permitted sources."
+              description="Field-level evidence from permitted sources and human checks. Provider data alone is not verification."
             />
             {lead.verifications.length === 0 ? (
               <div className="px-5 py-8">
@@ -382,6 +396,22 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                 </table>
               </div>
             )}
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Record a field check"
+              description="An admin attests that a value was actually checked. Leave the result unverified if you could not confirm it."
+            />
+            <div className="px-5 py-4">
+              {canVerify ? (
+                <FieldVerificationForm leadId={lead.id} fields={verifiableOptions} />
+              ) : (
+                <p className="text-sm text-muted">
+                  Only workspace admins can record field verification.
+                </p>
+              )}
+            </div>
           </Card>
 
           <Card>

@@ -415,7 +415,7 @@ model CampaignLead {
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   leadId     String
   lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  stage      String   @default("ADDED")
+  stage      String   @default("ADDED") // ADDED | DRAFTED | APPROVED | SENT | REPLIED | MEETING
   addedAt    DateTime @default(now())
 
   @@unique([campaignId, leadId])
@@ -445,6 +445,11 @@ model OutreachMessage {
   // Hash of the approved subject/body. Sending re-checks it so the message
   // cannot change between approval and delivery.
   approvedContentHash    String?
+  // Outcomes are recorded manually today; provider webhooks are not connected.
+  repliedAt              DateTime?
+  meetingAt              DateTime?
+  bouncedAt              DateTime?
+  outcomeNote            String?
   failureReason          String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt

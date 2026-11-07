@@ -4,16 +4,20 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 4B outreach safety complete.** Workspace, authentication, onboarding, plan
-> limits, admin configuration, lead management (CSV import, dedupe, provenance, export),
-> campaigns, the queue/worker job system, grounded agent execution, and approval-gated
-> outreach are implemented and verified. Lead discovery can use Apollo, People Data Labs, or
-> Google Places, research/qualification use an OpenAI-compatible model, and outreach drafts
-> are grounded in stored facts with template fallbacks. Every send requires an admin
-> approval bound to a content hash, re-checks the suppression list, and carries a signed
-> one-click unsubscribe link plus the workspace mailing address. Field-level verification,
-> campaign analytics, billing, and follow-up agents remain later phases. LeadPilot never
-> fabricates leads, contact details, company facts, or sources.
+> **Status: Phase 4B verification and analytics complete.** Workspace, authentication,
+> onboarding, plan limits, admin configuration, lead management (CSV import, dedupe,
+> provenance, export), campaigns, the queue/worker job system, grounded agent execution,
+> approval-gated outreach, field-level verification, and campaign outcome analytics are
+> implemented and verified. Lead discovery can use Apollo, People Data Labs, or Google
+> Places; research/qualification use an OpenAI-compatible model; outreach drafts are
+> grounded in stored facts with template fallbacks. Every send requires an admin approval
+> bound to a content hash, re-checks the suppression list, and carries a signed one-click
+> unsubscribe link plus the workspace mailing address. Field checks are human attestations
+> by an admin with optional evidence, and overall lead verification is derived from
+> populated fields rather than provider claims. Campaign outcomes (replied, meeting, hard
+> bounce) are logged manually; opens stay explicitly untracked because no email webhook is
+> connected. Billing and follow-up agents remain later phases. LeadPilot never fabricates
+> leads, contact details, company facts, sources, opens, or replies.
 
 ## Stack
 
@@ -164,6 +168,18 @@ reserved allowance; successful sends record the provider message ID and audit en
 **Settings → Suppression** supports manual add, CSV import, search, and removal, and the
 public unsubscribe page works without an account and is idempotent.
 
+**Outcomes and analytics** — after a send, a member can record a manual reply, meeting, or
+hard bounce with an optional note. Each outcome writes lead activity and an audit entry; a
+hard bounce also adds a `BOUNCED` suppression entry so the address is blocked from future
+sends. The campaign page reports sent, replied, meeting, and bounce counts plus reply and
+meeting rates. Opens are not shown as tracked because no provider webhook is connected.
+
+**Field verification** — an admin can record a per-field result (verified, partially
+verified, or unverified) with an optional evidence URL and note on the lead page. The lead's
+overall status is recomputed from its populated fields: it becomes `VERIFIED` only when
+every populated verifiable field has a human `VERIFIED` record. Provider data alone never
+marks a field verified.
+
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, security headers, and server-side limit checks. Outreach cannot
 be sent without an admin approval, and suppressed addresses are blocked at draft time and
@@ -171,8 +187,7 @@ again immediately before delivery.
 
 ## Not implemented yet
 
-- Field-level verification across sources (`LeadFieldVerification` cross-checks).
-- Campaign analytics: sent/opened/replied/meetings and recommendations.
+- Provider-webhook event tracking for opens/replies (outcomes are manual today).
 - Follow-up agent: due-date queue and reminders (no auto-send).
 - Stripe checkout, webhooks, and paid plan changes.
 - Team invitations.

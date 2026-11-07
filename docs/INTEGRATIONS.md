@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
+Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use
@@ -20,11 +20,13 @@ customer data.
 | Email delivery (verification, reset, outreach) | Implemented through Resend; requires keys |
 | Outreach drafting and approval gate | Implemented (Phase 4B) |
 | Suppression list and public unsubscribe | Implemented (Phase 4B) |
-| Campaign analytics and field verification | Pending |
+| Campaign analytics and field verification | Implemented (Phase 4B): manual outcomes and human field checks; no provider webhook |
 | Stripe billing | Not implemented; Free plan is created internally |
 
 `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor in this build.
-They remain disabled and are not advertised as runnable.
+They remain disabled and are not advertised as runnable. Resend webhooks are also not
+connected, so opens and replies are never ingested automatically; outcomes are logged
+manually and analytics report opens as untracked.
 
 ## 2. AI model (required for research and qualification)
 

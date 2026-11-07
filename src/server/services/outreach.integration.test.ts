@@ -20,9 +20,11 @@ const {
   createOutreachDraft,
   getCampaignOutreachState,
   getOutreachMessageDetail,
+  recordOutreachOutcome,
   sendOutreachMessage,
   updateOutreachDraft,
 } = await import("@/server/services/outreach");
+const { getCampaignAnalytics } = await import("@/server/services/campaign-analytics");
 const { addSuppression, isSuppressed } = await import("@/server/services/suppression");
 const { getUnsubscribePreview, unsubscribeWithToken } = await import(
   "@/server/services/unsubscribe"
@@ -628,6 +630,209 @@ describe("sending", () => {
     expect(detail?.preview?.text).toContain("Unsubscribe:");
     expect(detail?.preview?.text).toContain(PROFILE.mailingAddress);
     expect(detail?.preview?.html).toContain("Unsubscribe");
+  });
+});
+
+describe("manual outcomes", () => {
+  let outcomeTenant: Tenant;
+
+  beforeAll(async () => {
+    outcomeTenant = await createTestTenant(db, { key: "outcomes" });
+    await addProfile(outcomeTenant);
+  });
+
+  async function sentFixture() {
+    const fixture = await approvedFixture({ tenant: outcomeTenant });
+    vi.stubGlobal("fetch", vi.fn(resendSuccess(`re_${fixture.messageId}`)));
+    const sent = await sendOutreachMessage({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+    });
+    if (!sent.ok) throw new Error(sent.message);
+    vi.unstubAllGlobals();
+    return fixture;
+  }
+
+  it("records a manual reply and advances the campaign stage", async () => {
+    const fixture = await sentFixture();
+
+    const result = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "REPLIED",
+      note: "Reply received in the shared inbox.",
+    });
+    expect(result).toEqual({ ok: true });
+
+    const message = await messageRow(fixture.messageId);
+    expect(message.status).toBe("SENT");
+    expect(message.repliedAt).not.toBeNull();
+    expect(message.outcomeNote).toBe("Reply received in the shared inbox.");
+    expect(await campaignLeadStage(fixture.campaign.id, fixture.lead.id)).toBe("REPLIED");
+
+    const activity = await db.leadActivity.findFirst({
+      where: { leadId: fixture.lead.id, type: "OUTREACH_REPLIED" },
+    });
+    expect(activity).not.toBeNull();
+    expect(JSON.parse(activity?.detail ?? "{}").outcome).toBe("REPLIED");
+
+    const audit = await db.auditLog.findFirst({
+      where: {
+        workspaceId: outcomeTenant.workspace.id,
+        action: "outreach.replied",
+        entityId: fixture.messageId,
+      },
+    });
+    expect(audit).not.toBeNull();
+
+    // Recording the same manual outcome twice is idempotent.
+    const again = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "REPLIED",
+    });
+    expect(again).toEqual({ ok: true });
+    expect((await messageRow(fixture.messageId)).repliedAt).not.toBeNull();
+  });
+
+  it("records a meeting as a reply plus a booked meeting", async () => {
+    const fixture = await sentFixture();
+
+    const result = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "MEETING",
+    });
+    expect(result).toEqual({ ok: true });
+
+    const message = await messageRow(fixture.messageId);
+    expect(message.meetingAt).not.toBeNull();
+    expect(message.repliedAt).not.toBeNull();
+    expect(await campaignLeadStage(fixture.campaign.id, fixture.lead.id)).toBe("MEETING");
+
+    const activity = await db.leadActivity.findFirst({
+      where: { leadId: fixture.lead.id, type: "OUTREACH_MEETING" },
+    });
+    expect(activity).not.toBeNull();
+  });
+
+  it("records a hard bounce and suppresses the recipient exactly once", async () => {
+    const fixture = await sentFixture();
+    const email = normalizeEmail(fixture.lead.contactEmail!);
+
+    const result = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "BOUNCED",
+      note: "Provider bounce notice.",
+    });
+    expect(result).toEqual({ ok: true });
+
+    const message = await messageRow(fixture.messageId);
+    expect(message.status).toBe("BOUNCED");
+    expect(message.bouncedAt).not.toBeNull();
+
+    const suppression = await db.suppressionEntry.findUnique({
+      where: {
+        workspaceId_normalizedEmail: {
+          workspaceId: outcomeTenant.workspace.id,
+          normalizedEmail: email,
+        },
+      },
+    });
+    expect(suppression?.reason).toBe("BOUNCED");
+    expect(suppression?.source).toContain(fixture.messageId);
+    expect(await isSuppressed(outcomeTenant.workspace.id, email)).toBe(true);
+
+    const audit = await db.auditLog.findFirst({
+      where: { workspaceId: outcomeTenant.workspace.id, action: "suppression.added" },
+    });
+    expect(audit).not.toBeNull();
+
+    const again = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "BOUNCED",
+    });
+    expect(again).toEqual({ ok: true });
+    expect(
+      await db.suppressionEntry.count({
+        where: { workspaceId: outcomeTenant.workspace.id, normalizedEmail: email },
+      }),
+    ).toBe(1);
+  });
+
+  it("rejects outcomes before sending and after a bounce", async () => {
+    const draft = await draftFixture({ tenant: outcomeTenant });
+    const beforeSend = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: draft.messageId,
+      outcome: "REPLIED",
+    });
+    expect(beforeSend).toMatchObject({ ok: false, code: "CONFLICT" });
+    expect((await messageRow(draft.messageId)).repliedAt).toBeNull();
+
+    const fixture = await sentFixture();
+    await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "BOUNCED",
+    });
+
+    const repliedAfterBounce = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "REPLIED",
+    });
+    expect(repliedAfterBounce).toMatchObject({ ok: false, code: "CONFLICT" });
+
+    const invalid = await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "OPENED",
+    });
+    expect(invalid).toMatchObject({ ok: false, code: "INVALID" });
+  });
+
+  it("builds campaign analytics from recorded sends and outcomes only", async () => {
+    const fixture = await sentFixture();
+    await recordOutreachOutcome({
+      workspaceId: outcomeTenant.workspace.id,
+      actorId: outcomeTenant.user.id,
+      messageId: fixture.messageId,
+      outcome: "MEETING",
+    });
+
+    const analytics = await getCampaignAnalytics(
+      outcomeTenant.workspace.id,
+      fixture.campaign.id,
+    );
+    expect(analytics).toEqual({
+      leads: 1,
+      drafted: 0,
+      approved: 0,
+      sent: 1,
+      replied: 1,
+      meetings: 1,
+      bounced: 0,
+      replyRate: 100,
+      meetingRate: 100,
+      opensTracked: false,
+    });
+
+    expect(
+      await getCampaignAnalytics(outcomeTenant.workspace.id, "missing-campaign"),
+    ).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 # LeadPilot — Architecture
 
-Status: Phase 4B outreach safety implemented · Last updated: 2026-11-06
+Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
 
 ## 1. Purpose and scope
 
@@ -203,14 +203,29 @@ Details and the required environment variables are in `docs/INTEGRATIONS.md`.
 `Lead.verificationStatus` is one of `UNVERIFIED`, `PARTIAL`, `VERIFIED`, and each
 important field has its own `LeadFieldVerification` row.
 
-- `VERIFIED` — provider returned the value and a second source check or provider
-  verification flag confirms it.
-- `PARTIAL` — present in one authoritative provider record but not independently checked.
-- `UNVERIFIED` — user-entered or legacy data; never presented as confirmed.
+- Verification is a human attestation. An `ADMIN` records the result for a specific field,
+  with an optional evidence URL and note. Provider data alone never sets a field verified.
+- Overall status is derived from populated fields: `VERIFIED` only when every populated
+  verifiable field has a `VERIFIED` human check; `PARTIAL` when at least one check exists but
+  the set is incomplete; `UNVERIFIED` otherwise. Blank fields are ignored rather than
+  counted against the lead.
+- Provider-supplied values start as `PARTIAL` when they carry an evidence URL and
+  `UNVERIFIED` otherwise. They only become `VERIFIED` after a human check.
+- Each change writes a `FIELD_VERIFIED` lead activity and a `lead.field_verified` audit
+  entry.
 
 The UI shows a source chip and last-checked date on the lead detail and in the table.
 Exports include source, source URL, retrievedAt, and verification columns so customers
 can audit what they received.
+
+### Campaign outcomes and analytics
+
+`OutreachMessage` stores `repliedAt`, `meetingAt`, `bouncedAt`, and `outcomeNote` for
+outcomes recorded manually by a workspace member. There is no provider event ingestion, so
+`getCampaignAnalytics` counts only recorded sends and these manual outcomes and returns
+`opensTracked: false`. It never synthesizes opens or replies. A `BOUNCED` outcome sets the
+message status, adds a workspace `BOUNCED` suppression entry, and blocks future sends to
+that address.
 
 AI prompts receive only stored source data. Structured outputs are validated; unknown
 fields are rejected. The draft agent has no tool access to the open web and cannot create

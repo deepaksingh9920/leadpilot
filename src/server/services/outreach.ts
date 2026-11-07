@@ -29,6 +29,7 @@ export const OUTREACH_STATUSES = [
   "SENDING",
   "SCHEDULED",
   "SENT",
+  "BOUNCED",
   "FAILED",
   "CANCELLED",
 ] as const;
@@ -41,8 +42,19 @@ export const OUTREACH_STATUS_LABELS: Record<string, string> = {
   SENDING: "Sending",
   SCHEDULED: "Scheduled",
   SENT: "Sent",
+  BOUNCED: "Bounced",
   FAILED: "Failed",
   CANCELLED: "Cancelled",
+};
+
+export const OUTREACH_OUTCOMES = ["REPLIED", "MEETING", "BOUNCED"] as const;
+
+export type OutreachOutcome = (typeof OUTREACH_OUTCOMES)[number];
+
+export const OUTREACH_OUTCOME_LABELS: Record<OutreachOutcome, string> = {
+  REPLIED: "Replied",
+  MEETING: "Meeting booked",
+  BOUNCED: "Hard bounce",
 };
 
 export type OutreachErrorCode =
@@ -66,6 +78,7 @@ const OUTREACH_STAGE_RANK: Record<string, number> = {
   APPROVED: 2,
   SENT: 3,
   REPLIED: 4,
+  MEETING: 5,
 };
 
 const MESSAGE_RELATIONS = {
@@ -79,6 +92,11 @@ const MESSAGE_RELATIONS = {
       location: true,
       status: true,
       deletedAt: true,
+      verifications: {
+        where: { field: "contactEmail" },
+        take: 1,
+        select: { status: true, sourceUrl: true, checkedAt: true },
+      },
     },
   },
   campaign: { select: { id: true, name: true, status: true, dailySendCap: true } },
@@ -119,7 +137,7 @@ async function syncCampaignLeadStage(
     }),
   ]);
 
-  if (!campaignLead || campaignLead.stage === "REPLIED") return;
+  if (!campaignLead || ["REPLIED", "MEETING"].includes(campaignLead.stage)) return;
 
   const has = (statuses: string[]) => messages.some((row) => statuses.includes(row.status));
   const desired = has(["SENT"])
@@ -737,6 +755,184 @@ export async function sendOutreachMessage(input: {
       message: "The send could not be completed. Check the message and try again.",
     };
   }
+}
+
+export async function recordOutreachOutcome(input: {
+  workspaceId: string;
+  actorId: string;
+  messageId: string;
+  outcome: string;
+  note?: string | null;
+}): Promise<{ ok: true } | OutreachFailure> {
+  const outcome = input.outcome.trim();
+  if (!(OUTREACH_OUTCOMES as readonly string[]).includes(outcome)) {
+    return { ok: false, code: "INVALID", message: "Choose a valid outreach outcome." };
+  }
+  const typedOutcome = outcome as OutreachOutcome;
+
+  const message = await loadMessage(input.workspaceId, input.messageId);
+  if (!message) return { ok: false, code: "NOT_FOUND", message: "Message not found." };
+  if (!["SENT", "BOUNCED"].includes(message.status)) {
+    return {
+      ok: false,
+      code: "CONFLICT",
+      message: "Record an outcome only after the message has been sent.",
+    };
+  }
+  if (message.status === "BOUNCED" && typedOutcome !== "BOUNCED") {
+    return {
+      ok: false,
+      code: "CONFLICT",
+      message: "This message bounced, so it cannot also be marked as replied.",
+    };
+  }
+
+  if (typedOutcome === "REPLIED" && message.repliedAt) return { ok: true };
+  if (typedOutcome === "MEETING" && message.meetingAt) return { ok: true };
+  if (typedOutcome === "BOUNCED" && message.bouncedAt) return { ok: true };
+
+  const bouncedEmail =
+    typedOutcome === "BOUNCED"
+      ? normalizeSuppressionEmail(message.lead.contactEmail)
+      : null;
+  if (typedOutcome === "BOUNCED" && !bouncedEmail) {
+    return {
+      ok: false,
+      code: "INVALID",
+      message: "This lead has no valid email to add to the suppression list.",
+    };
+  }
+
+  const note = input.note?.trim().slice(0, 500) || null;
+  const now = new Date();
+  const activityType =
+    typedOutcome === "REPLIED"
+      ? "OUTREACH_REPLIED"
+      : typedOutcome === "MEETING"
+        ? "OUTREACH_MEETING"
+        : "OUTREACH_BOUNCED";
+  const auditAction =
+    typedOutcome === "REPLIED"
+      ? "outreach.replied"
+      : typedOutcome === "MEETING"
+        ? "outreach.meeting"
+        : "outreach.bounced";
+
+  await db.$transaction(async (tx) => {
+    const data: Prisma.OutreachMessageUpdateInput = {
+      outcomeNote: note ?? message.outcomeNote,
+    };
+    if (typedOutcome === "REPLIED") {
+      data.repliedAt = now;
+    } else if (typedOutcome === "MEETING") {
+      data.meetingAt = now;
+      data.repliedAt = message.repliedAt ?? now;
+    } else {
+      data.bouncedAt = now;
+      data.status = "BOUNCED";
+    }
+
+    await tx.outreachMessage.update({ where: { id: message.id }, data });
+
+    if (message.campaignId) {
+      const campaignLead = await tx.campaignLead.findUnique({
+        where: {
+          campaignId_leadId: { campaignId: message.campaignId, leadId: message.leadId },
+        },
+        select: { stage: true },
+      });
+      if (campaignLead) {
+        if (typedOutcome === "MEETING") {
+          await tx.campaignLead.update({
+            where: {
+              campaignId_leadId: {
+                campaignId: message.campaignId,
+                leadId: message.leadId,
+              },
+            },
+            data: { stage: "MEETING" },
+          });
+        } else if (
+          typedOutcome === "REPLIED" &&
+          !["REPLIED", "MEETING"].includes(campaignLead.stage)
+        ) {
+          await tx.campaignLead.update({
+            where: {
+              campaignId_leadId: {
+                campaignId: message.campaignId,
+                leadId: message.leadId,
+              },
+            },
+            data: { stage: "REPLIED" },
+          });
+        }
+      }
+    }
+
+    if (typedOutcome === "BOUNCED" && bouncedEmail) {
+      const existing = await tx.suppressionEntry.findUnique({
+        where: {
+          workspaceId_normalizedEmail: {
+            workspaceId: input.workspaceId,
+            normalizedEmail: bouncedEmail,
+          },
+        },
+        select: { id: true },
+      });
+      if (!existing) {
+        const entry = await tx.suppressionEntry.create({
+          data: {
+            workspaceId: input.workspaceId,
+            email: (message.lead.contactEmail ?? bouncedEmail).trim().slice(0, 254),
+            normalizedEmail: bouncedEmail,
+            reason: "BOUNCED",
+            source: `Hard bounce · message ${message.id}`,
+          },
+          select: { id: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            workspaceId: input.workspaceId,
+            actorId: input.actorId,
+            action: "suppression.added",
+            entityType: "SuppressionEntry",
+            entityId: entry.id,
+            metadata: JSON.stringify({ reason: "BOUNCED", source: "Outreach hard bounce" }),
+          },
+        });
+      }
+    }
+
+    await tx.leadActivity.create({
+      data: {
+        leadId: message.leadId,
+        actorId: input.actorId,
+        type: activityType,
+        detail: JSON.stringify({
+          messageId: message.id,
+          campaignId: message.campaignId,
+          outcome: typedOutcome,
+          note,
+        }),
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        action: auditAction,
+        entityType: "OutreachMessage",
+        entityId: message.id,
+        metadata: JSON.stringify({
+          campaignId: message.campaignId,
+          leadId: message.leadId,
+          note,
+        }),
+      },
+    });
+  });
+
+  return { ok: true };
 }
 
 export async function getOutreachMessageDetail(workspaceId: string, messageId: string) {
