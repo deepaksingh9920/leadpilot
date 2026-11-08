@@ -145,6 +145,7 @@ model Plan {
 
   limits        PlanLimit[]
   agents        PlanAgent[]
+  providerPrices PlanProviderPrice[]
   subscriptions Subscription[]
 }
 
@@ -167,15 +168,31 @@ model PlanAgent {
   @@id([planId, agentKey])
 }
 
+model PlanProviderPrice {
+  id             String   @id @default(cuid())
+  planId         String
+  plan           Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  provider       String   @default("razorpay")
+  interval       String // MONTHLY | YEARLY
+  externalPlanId String // Provider's plan/price identifier
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([planId, provider, interval])
+  @@unique([provider, externalPlanId])
+}
+
 model Subscription {
   id                     String    @id @default(cuid())
   workspaceId            String    @unique
   workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   planId                 String
   plan                   Plan      @relation(fields: [planId], references: [id])
-  status                 String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELED | TRIALING
-  provider               String    @default("stripe")
+  status                 String    @default("ACTIVE") // ACTIVE | PENDING | PAST_DUE | PAUSED | CANCELED | TRIALING
+  provider               String    @default("razorpay")
   providerSubscriptionId String?
+  providerCustomerId     String?
+  interval               String? // MONTHLY | YEARLY
   currentPeriodStart     DateTime?
   currentPeriodEnd       DateTime?
   cancelAtPeriodEnd      Boolean   @default(false)
@@ -183,6 +200,7 @@ model Subscription {
   updatedAt              DateTime  @updatedAt
 
   @@index([planId])
+  @@index([providerSubscriptionId])
 }
 
 model UsageCounter {

@@ -1,6 +1,6 @@
 # LeadPilot — Compliance and Data Policy
 
-Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
+Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
 
 This document defines product rules. It is not legal advice; before launch, have counsel
 review the policy against the jurisdictions you sell into (GDPR/UK GDPR, CAN-SPAM, PECR,
@@ -118,6 +118,23 @@ Implemented in Phase 4B and enforced server-side:
 - Incident response: contain, assess, notify the workspace owner, and meet breach
   notification timelines where applicable.
 
+### Billing and payment data
+
+- Card and payment-instrument data never touches LeadPilot. Checkout happens on Razorpay's
+  hosted payment page; the app stores only the provider subscription ID, customer ID,
+  status, billing interval, and period dates.
+- Plan changes are driven by signature-verified webhooks, not by redirects or client claims.
+  The raw request body is HMAC-SHA256 verified before parsing, and each event is applied
+  once via a unique `(provider, externalEventId)` record inside the same transaction as the
+  subscription update and audit entry.
+- Checkout is refused unless the API keys **and** webhook secret are configured, so the app
+  cannot collect payment without a working activation path.
+- Only the workspace `OWNER` can start checkout or cancel. Cancellation defaults to the end
+  of the paid period; an immediate cancellation downgrades the workspace to Free. Both
+  actions write audit entries.
+- Razorpay is a subprocessor for billing. Its terms, data location, and retention must be
+  added to the subprocessor list before launch.
+
 ## 7. Customer-facing controls
 
 - Suppression list: add/remove manually, import CSV, view reason/source/date
@@ -126,6 +143,8 @@ Implemented in Phase 4B and enforced server-side:
   (implemented). A per-workspace approval-policy setting remains pending.
 - Sender identity, mailing address, and unsubscribe footer (implemented; address required
   before approval).
+- Billing is owner-only: the settings page shows the current provider status, interval, and
+  renewal/end date, and explains when billing is unconfigured (implemented in Phase 5A).
 - Data export and deletion requests handled per plan and law.
 - Integration disconnection immediately stops provider access.
 - Clear in-product explanations of verification status and source limitations.
@@ -143,6 +162,11 @@ by a superadmin and recorded.
 - [ ] Provider contracts reviewed; terms URLs recorded per source.
 - [x] Suppression and unsubscribe tested end to end (Phase 4B).
 - [x] Field verification and manual outcome analytics tested (Phase 4B continuation).
+- [x] Razorpay billing adapter, signature verification, replay idempotency, and cancellation
+      tested with injected provider stubs (Phase 5A).
+- [ ] Live Razorpay checkout, webhook delivery, and cancellation verified with real test
+      credentials and provider plan IDs.
+- [ ] Payment/webhook subprocessor entry and billing terms reviewed for launch.
 - [ ] Email authentication configured (SPF, DKIM, DMARC) on the sending domain.
 - [ ] Retention and deletion jobs implemented and tested.
 - [ ] Audit log coverage verified for all privileged actions.

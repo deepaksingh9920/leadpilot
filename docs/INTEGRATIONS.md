@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
+Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use
@@ -21,7 +21,7 @@ customer data.
 | Outreach drafting and approval gate | Implemented (Phase 4B) |
 | Suppression list and public unsubscribe | Implemented (Phase 4B) |
 | Campaign analytics and field verification | Implemented (Phase 4B): manual outcomes and human field checks; no provider webhook |
-| Stripe billing | Not implemented; Free plan is created internally |
+| Razorpay subscription billing | Implemented (Phase 5A): hosted checkout, signed/idempotent webhooks, cancel; disabled until keys and webhook secret exist |
 
 `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor in this build.
 They remain disabled and are not advertised as runnable. Resend webhooks are also not
@@ -134,17 +134,46 @@ nothing is simulated.
 Public unsubscribe URL shape: `{APP_URL}/unsubscribe/{token}`. The page requires no login,
 shows a masked address, and is idempotent.
 
-## 6. Billing (not implemented)
+## 6. Billing (Razorpay)
 
-Stripe Checkout, Billing Portal, and webhooks are not exposed in this build. Plan records
-and limits exist in the database and are created with the Free plan.
+Razorpay subscriptions are implemented behind `BILLING_PROVIDER`. Checkout is refused until
+`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` are all set, so the
+app cannot take a payment it has no way to activate. The workspace owner starts checkout on
+**Settings → Plan and usage**; the API creates the subscription server-side and redirects to
+Razorpay's hosted `short_url`. No client checkout script and no publishable key are used.
 
 | Variable | Purpose |
 |---|---|
-| `STRIPE_SECRET_KEY` | Server key (test mode for staging) |
-| `STRIPE_WEBHOOK_SECRET` | Endpoint signing secret |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Client key |
-| `STRIPE_PRICE_*` | Price IDs for paid plans |
+| `BILLING_PROVIDER` | `razorpay` (default). Other values leave billing unconfigured |
+| `RAZORPAY_KEY_ID` | Server API key ID (test mode for staging) |
+| `RAZORPAY_KEY_SECRET` | Server API key secret |
+| `RAZORPAY_WEBHOOK_SECRET` | Secret used to verify `X-Razorpay-Signature` |
+| `RAZORPAY_API_BASE_URL` | API base, default `https://api.razorpay.com/v1` |
+
+Setup:
+1. Create monthly and yearly subscription plans in the Razorpay dashboard and note each
+   `plan_id`.
+2. Paste them into **Admin → Plans and limits** for the matching plan and interval. Each
+   provider plan ID can map to only one local plan/interval.
+3. Add the three secrets to `.env.local` and restart.
+4. Register `POST {APP_URL}/api/billing/razorpay` for the subscription events you need
+   (`subscription.activated`, `charged`, `pending`, `halted`, `paused`, `resumed`,
+   `cancelled`, `completed`).
+5. Run a test-mode checkout. Payment alone does not change the plan; confirm the webhook
+   activates it in **Settings** and that the audit log records the event.
+
+Webhook behavior: the raw body is verified with HMAC-SHA256 and compared in constant time.
+Events are inserted into `WebhookEvent` with a unique `(provider, externalEventId)`, and the
+subscription update plus audit write happen in the same transaction, so replays are
+acknowledged without re-applying. `subscription.cancelled` downgrades the workspace to Free
+unless the provider reports cancellation at cycle end with a future period end, in which
+case the paid plan stays active until that date. Cancellation from the app sends
+`cancel_at_cycle_end` by default; choosing immediate cancellation downgrades locally to
+Free. Missing provider notes are resolved through `PlanProviderPrice` by external `plan_id`.
+
+Live verification is still pending because this checkout has no real Razorpay test keys or
+webhook secret. The adapter, webhook route, and integration tests use injected `fetch`
+stubs; nothing is simulated in the running app.
 
 ## 7. Monitoring (optional)
 
@@ -179,8 +208,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 - `.env.local` — real local values, never committed.
 - Hosting environment — production values set in the provider dashboard, never in git.
 
-Keys are read only in server modules; `NEXT_PUBLIC_` is reserved for the Stripe
-publishable key.
+Keys are read only in server modules. No `NEXT_PUBLIC_` provider key is required: Razorpay
+checkout uses a server-created hosted link and Resend is server-only.
 
 ## 10. Configuration status behavior
 
@@ -208,6 +237,9 @@ The Integrations page reports the active lead source and each provider's actual 
    campaign daily cap and confirm the Resend response and unsubscribe link.
 10. Import any existing do-not-contact addresses into **Settings → Suppression** before
     sending.
+11. Add the Razorpay keys and webhook secret, map each paid plan's monthly/yearly
+    `plan_id` in **Admin**, then run a test-mode checkout and confirm the webhook
+    activation in **Settings** and the audit log.
 
 ## 12. Data handling notes
 

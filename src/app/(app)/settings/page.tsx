@@ -3,15 +3,25 @@ import { Ban, CheckCircle2, KeyRound, MailWarning, ShieldCheck, Users } from "lu
 
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
 import { PasswordForm } from "@/components/settings/password-form";
+import {
+  BillingCheckoutOptions,
+  CancelSubscriptionForm,
+  type CheckoutPlan,
+} from "@/components/settings/billing-forms";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { db } from "@/lib/db";
-import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
+import { canManageBilling, requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { formatCurrency, formatDate, percentage } from "@/lib/utils";
+import {
+  BILLING_INTERVAL_LABELS,
+  BILLING_STATUS_LABELS,
+  getBillingState,
+} from "@/server/services/billing";
 import { countSuppressions } from "@/server/services/suppression";
 import { getUsageSummary, METRIC_LABELS } from "@/server/services/workspaces";
 
@@ -37,7 +47,7 @@ export default async function SettingsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
 
-  const [memberships, usage, suppressedCount] = await Promise.all([
+  const [memberships, usage, suppressedCount, billing] = await Promise.all([
     db.membership.findMany({
       where: { workspaceId: context.workspace.id },
       include: { user: { select: { id: true, name: true, email: true } } },
@@ -45,6 +55,7 @@ export default async function SettingsPage() {
     }),
     getUsageSummary(context.workspace.id),
     countSuppressions(context.workspace.id),
+    getBillingState(context.workspace.id),
   ]);
 
   const profile = context.workspace.profile;
@@ -52,6 +63,29 @@ export default async function SettingsPage() {
   const plan = context.plan;
   const limits = context.limits;
   const seatLimit = limits.seats ?? 1;
+  const subscription = billing.subscription;
+  const canBill = canManageBilling(context.role);
+  const canCancelNow = Boolean(
+    billing.configured &&
+      subscription?.providerSubscriptionId &&
+      !subscription.cancelAtPeriodEnd &&
+      subscription.status !== "CANCELED",
+  );
+  const canStartCheckout = Boolean(
+    billing.configured &&
+      canBill &&
+      (!subscription?.providerSubscriptionId || subscription.status === "CANCELED"),
+  );
+  const checkoutPlans: CheckoutPlan[] = billing.plans
+    .filter((candidate) => candidate.monthlyPrice > 0 || candidate.yearlyPrice > 0)
+    .map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      monthlyPrice: candidate.monthlyPrice,
+      yearlyPrice: candidate.yearlyPrice,
+      currency: candidate.currency,
+      intervals: candidate.intervals,
+    }));
 
   return (
     <div className="space-y-6">
@@ -264,9 +298,29 @@ export default async function SettingsPage() {
                 Billing status
               </p>
               <p className="mt-1">
-                {env.billingConfigured
-                  ? "Billing provider configured. Subscription changes are handled through Stripe."
-                  : "Billing is not configured in this environment. Your workspace stays on the Free plan; no payment method is collected."}
+                {!billing.configured
+                  ? "Billing is not configured in this environment. Your workspace stays on the Free plan; no payment method is collected."
+                  : subscription?.providerSubscriptionId
+                    ? `Payments are processed by Razorpay. ${
+                        BILLING_STATUS_LABELS[subscription.status] ?? subscription.status
+                      }${
+                        subscription.interval
+                          ? ` · ${
+                              BILLING_INTERVAL_LABELS[subscription.interval] ??
+                              subscription.interval
+                            } billing`
+                          : ""
+                      }${
+                        subscription.currentPeriodEnd
+                          ? ` · ${
+                              subscription.cancelAtPeriodEnd ||
+                              subscription.status === "CANCELED"
+                                ? "Ends"
+                                : "Renews"
+                            } ${formatDate(subscription.currentPeriodEnd)}`
+                          : ""
+                      }.`
+                    : "Razorpay billing is configured. No paid subscription is attached to this workspace yet."}
               </p>
               <Link
                 href="/pricing"
@@ -275,6 +329,72 @@ export default async function SettingsPage() {
                 Compare plans
               </Link>
             </div>
+
+            {billing.configured && subscription?.providerSubscriptionId ? (
+              <dl className="space-y-2 border-t border-line pt-3 text-[12px]">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted">Provider</dt>
+                  <dd className="font-medium text-ink">Razorpay</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted">Status</dt>
+                  <dd className="font-medium text-ink">
+                    {BILLING_STATUS_LABELS[subscription.status] ?? subscription.status}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted">Interval</dt>
+                  <dd className="font-medium text-ink">
+                    {subscription.interval
+                      ? (BILLING_INTERVAL_LABELS[subscription.interval] ?? subscription.interval)
+                      : "Not recorded"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted">
+                    {subscription.cancelAtPeriodEnd ? "Ends" : "Current period ends"}
+                  </dt>
+                  <dd className="font-medium text-ink">
+                    {subscription.currentPeriodEnd
+                      ? formatDate(subscription.currentPeriodEnd)
+                      : "Not recorded"}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
+
+            {canCancelNow ? (
+              canBill ? (
+                <CancelSubscriptionForm cancelsAtPeriodEnd={false} />
+              ) : (
+                <p className="text-[11px] leading-relaxed text-muted">
+                  Only the workspace owner can change or cancel the subscription.
+                </p>
+              )
+            ) : null}
+
+            {billing.configured && subscription?.providerSubscriptionId &&
+            subscription.cancelAtPeriodEnd ? (
+              <CancelSubscriptionForm cancelsAtPeriodEnd />
+            ) : null}
+
+            {canStartCheckout ? (
+              <div className="space-y-3 border-t border-line pt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+                  {subscription?.status === "CANCELED" ? "Start a new subscription" : "Upgrade"}
+                </p>
+                {!billing.webhooksConfigured ? (
+                  <Alert tone="warning">
+                    Add RAZORPAY_WEBHOOK_SECRET on the server before checkout. Without a verified
+                    webhook a paid subscription could never be activated.
+                  </Alert>
+                ) : null}
+                <BillingCheckoutOptions
+                  plans={checkoutPlans}
+                  disabled={!billing.webhooksConfigured}
+                />
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>

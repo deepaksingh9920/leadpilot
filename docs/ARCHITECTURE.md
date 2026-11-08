@@ -1,6 +1,6 @@
 # LeadPilot — Architecture
 
-Status: Phase 4B verification and analytics implemented · Last updated: 2026-11-07
+Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
 
 ## 1. Purpose and scope
 
@@ -30,7 +30,7 @@ calling, browser scraping, and sending without approval.
 | AI | Server-only `LlmProvider` adapter over an OpenAI-compatible API | Swap models/providers without touching business logic |
 | Lead data | `LeadSourceProvider` adapters (licensed APIs + CSV import) | Enforces provenance and terms; no scraping |
 | Email | `EmailProvider` adapter (Resend or SMTP) | Approval-gated sending, unsubscribe handling |
-| Billing | Stripe Checkout + Billing Portal + signed webhooks | Standard SaaS subscriptions; admin-editable plans |
+| Billing | Razorpay subscriptions: server-created subscription + hosted `short_url`, signed webhooks | Hosted checkout needs no client checkout script; webhook-driven state is idempotent and auditable |
 | Observability | Structured JSON logs, audit log, `/api/health`, optional Sentry | Debuggable and auditable |
 | Tests | Vitest (unit/integration) + Playwright (critical flows) | Verifies behavior, not just builds |
 
@@ -51,14 +51,14 @@ Next.js (Vercel or Node/Docker)
   ├─ admin platform console
   └─ /api/*
        ├─ worker tick  ◄── platform cron (secret header)
-       ├─ stripe webhook ◄── Stripe (signature verified)
+       ├─ billing webhook ◄── Razorpay (HMAC signature verified)
        └─ health
   │
   ├── PostgreSQL (Prisma) — tenants, leads, runs, billing state, audit
   ├── LLM API — research summaries, scoring rationale, outreach drafts
   ├── Lead source APIs — licensed business/contact data
   ├── Email provider — approved outreach only
-  └── Stripe — subscriptions and usage-based entitlements
+  └── Razorpay — subscriptions; plan state changes only from verified webhooks
 ```
 
 Local development uses the same application code with SQLite and the same provider
@@ -179,7 +179,7 @@ that cannot reserve usage is rejected before any provider call.
 | `LlmProvider` | `completeStructured(schema, prompt, context)`, `health()` | AI key + model |
 | `LeadSourceProvider` | `search(criteria)`, `enrich(record)`, `health()` | Licensed provider key + terms acceptance |
 | `EmailProvider` | `send(approvedMessage)`, `health()` | Verified sending domain + API key |
-| `BillingProvider` | `createCheckout`, `createPortal`, `verifyWebhook` | Stripe keys + webhook secret |
+| `BillingProvider` | `createSubscription(planId, interval, notes)`, `cancelSubscription(id, atCycleEnd)`, `verifyWebhook(rawBody, signature)` | Razorpay key ID/secret + webhook secret + per-plan `plan_id`s |
 
 Behavior when unconfigured:
 - UI shows the integration as "Not connected" with setup instructions.
@@ -195,6 +195,22 @@ Provider rules:
   timestamp.
 - API keys live in server environment variables (or AES-256-GCM encrypted per-workspace
   credentials); they never reach the client bundle or logs.
+
+### Billing lifecycle
+
+`PlanProviderPrice` maps each plan and interval to a Razorpay `plan_id`; a superadmin edits
+these in the admin console. Checkout is refused unless `RAZORPAY_KEY_ID`,
+`RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` are all present, so payment cannot be
+taken without a verified activation path. `startSubscriptionCheckout` creates the provider
+subscription with workspace/plan/interval notes, accepts only an `https` `short_url` on a
+Razorpay host, and writes an audit entry; it does not change local plan state. The
+signature-verified webhook is the only activation path: the raw body is HMAC-checked, the
+event is inserted into `WebhookEvent` with a unique provider/event-id constraint, and the
+subscription upsert plus audit entry happen in the same transaction. Activation, charged,
+and resumed events map to `ACTIVE`; pending/halted map to `PAST_DUE`; paused maps to
+`PAUSED`; canceled/completed map to `CANCELED` and downgrade the workspace to the Free plan.
+A cancellation requested for cycle end keeps the paid plan active until the period expires.
+Provider plan IDs are the fallback mapping when event notes are absent.
 
 Details and the required environment variables are in `docs/INTEGRATIONS.md`.
 
@@ -284,7 +300,7 @@ leadpilot/
 │  │  │  ├─ jobs/tick/       # protected worker trigger
 │  │  │  ├─ leads/export/
 │  │  │  ├─ outreach/send/
-│  │  │  ├─ webhooks/stripe/
+│  │  │  ├─ billing/razorpay/  # signed subscription webhook
 │  │  │  └─ health/
 │  │  ├─ layout.tsx
 │  │  └─ globals.css
@@ -300,7 +316,7 @@ leadpilot/
 │  │  ├─ ai/                 # provider + prompts + schema validation
 │  │  ├─ sources/            # provider adapters + normalizers
 │  │  ├─ outreach/           # approval, suppression, sending
-│  │  ├─ billing/            # plans, limits, stripe adapter
+│  │  ├─ billing/            # plans, limits, Razorpay adapter + webhook parsing
 │  │  ├─ jobs/               # queue, leases, pipeline stages
 │  │  ├─ security/           # rate limit, csrf, redaction, crypto
 │  │  ├─ validation/         # zod schemas
@@ -325,11 +341,12 @@ leadpilot/
 | Environment | Database | Providers | Purpose |
 |---|---|---|---|
 | Local | SQLite file | Real keys from `.env.local`; actions disabled if absent | Development and manual QA |
-| Preview | Postgres branch | Stripe test mode, provider test keys | Review before release |
+| Preview | Postgres branch | Razorpay test mode, provider test keys | Review before release |
 | Production | Postgres | Live keys | Customers |
 
 All configuration is environment-based; no secrets in source. Plan prices and limits are
-stored in the database and editable by a superadmin, with Stripe prices referenced by ID.
+stored in the database and editable by a superadmin, with Razorpay `plan_id` values
+referenced by plan and interval in `PlanProviderPrice`.
 
 ## 12. Observability and error handling
 
@@ -356,7 +373,7 @@ stored in the database and editable by a superadmin, with Stripe prices referenc
 
 ## 14. Deployment
 
-Recommended: Vercel (app + cron) with managed Postgres (Neon/Supabase), Stripe, and an
+Recommended: Vercel (app + cron) with managed Postgres (Neon/Supabase), Razorpay, and an
 email provider. Alternative: Docker image on a Node host with a reverse proxy; run the
 worker tick from system cron every minute.
 
@@ -375,3 +392,4 @@ procedure.
 | Real providers only, no production demo mode | User requirement; prevents fabricated data reaching customers | Never — test fixtures stay isolated |
 | Human approval mandatory for outreach | Compliance and user trust | Never |
 | Provider adapters behind interfaces | Vendor flexibility and testability | A provider becomes a hard platform dependency |
+| Razorpay hosted checkout; webhook as the only activation path | No client checkout script, and no paid state without a verified payment event | Provider supports a better local checkout flow or a second billing provider is added |

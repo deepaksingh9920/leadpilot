@@ -58,7 +58,17 @@ export const env = {
     optional("GOOGLE_PLACES_API_BASE_URL") ?? "https://places.googleapis.com/v1",
 
   emailConfigured: Boolean(optional("RESEND_API_KEY") && optional("EMAIL_FROM")),
-  billingConfigured: Boolean(optional("STRIPE_SECRET_KEY")),
+  billingProvider: optional("BILLING_PROVIDER")?.toLowerCase() ?? "razorpay",
+  razorpayKeyId: optional("RAZORPAY_KEY_ID"),
+  razorpayKeySecret: optional("RAZORPAY_KEY_SECRET"),
+  razorpayWebhookSecret: optional("RAZORPAY_WEBHOOK_SECRET"),
+  razorpayBaseUrl: optional("RAZORPAY_API_BASE_URL") ?? "https://api.razorpay.com/v1",
+  billingConfigured: Boolean(optional("RAZORPAY_KEY_ID") && optional("RAZORPAY_KEY_SECRET")),
+  billingWebhooksConfigured: Boolean(
+    optional("RAZORPAY_KEY_ID") &&
+      optional("RAZORPAY_KEY_SECRET") &&
+      optional("RAZORPAY_WEBHOOK_SECRET"),
+  ),
   sentryConfigured: Boolean(optional("SENTRY_DSN")),
   workerSecret: optional("WORKER_SECRET"),
   agentRuntimeReady: optional("AGENT_RUNTIME_READY") === "true",

@@ -65,8 +65,8 @@ export default async function AdminPage({
       {saved ? <Alert tone="success">Plan configuration saved and audit-logged.</Alert> : null}
       {error ? (
         <Alert tone="danger">
-          The plan could not be saved because one or more values were invalid. Check prices
-          (non-negative) and limits (whole numbers).
+          The plan could not be saved. Check prices (non-negative), limits (whole numbers), and
+          Razorpay plan IDs (valid characters; each ID can belong to only one plan and interval).
         </Alert>
       ) : null}
 
@@ -99,6 +99,11 @@ export default async function AdminPage({
         <div className="grid gap-4 xl:grid-cols-2">
           {overview.plans.map((plan) => {
             const limitMap = Object.fromEntries(plan.limits.map((limit) => [limit.metric, limit.limit]));
+            const priceMap = Object.fromEntries(
+              plan.providerPrices
+                .filter((price) => price.provider === "razorpay")
+                .map((price) => [price.interval, price.externalPlanId]),
+            );
             return (
               <Card key={plan.id}>
                 <CardHeader
@@ -185,6 +190,38 @@ export default async function AdminPage({
                         />
                       </label>
                     ))}
+                  </div>
+
+                  <div className="rounded-xl border border-line bg-canvas/60 p-3">
+                    <p className="text-[11px] leading-relaxed text-muted">
+                      Razorpay plan IDs are created in the Razorpay dashboard. Paste the
+                      <code className="mx-1 rounded bg-white/60 px-1 py-0.5 text-[10px]">
+                        plan_id
+                      </code>
+                      for each interval. Leave a field blank to disable that checkout option.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="label">Razorpay monthly plan ID</span>
+                        <input
+                          name="razorpayMonthlyPlanId"
+                          defaultValue={priceMap.MONTHLY ?? ""}
+                          className="input"
+                          maxLength={120}
+                          placeholder="plan_..."
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label">Razorpay yearly plan ID</span>
+                        <input
+                          name="razorpayYearlyPlanId"
+                          defaultValue={priceMap.YEARLY ?? ""}
+                          className="input"
+                          maxLength={120}
+                          placeholder="plan_..."
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">

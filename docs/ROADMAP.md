@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 4B verification and analytics complete — verified drafts, approval-gated sends, suppression, unsubscribe, human field checks, manual outcomes · Last updated: 2026-11-07
+Status: Phase 5A Razorpay billing complete — hosted checkout, signed/idempotent webhooks, owner-gated cancel, plan mapping · Last updated: 2026-11-08
 
 ## Working rules
 
@@ -84,7 +84,7 @@ Fixed during verification:
 Deferred / known limitations:
 - Email verification and password-reset delivery stay disabled until `RESEND_API_KEY` and
   `EMAIL_FROM` are configured; the UI states this explicitly.
-- Live agents, lead sources, outreach sending, CSV import, Stripe checkout, and team
+- Live agents, lead sources, outreach sending, CSV import, billing checkout, and team
   invitations are later phases.
 - The 390 px mobile layout was reviewed only through static responsive-class inspection.
   Device emulation was unavailable in this environment (`X-Frame-Options: DENY` blocks
@@ -163,8 +163,8 @@ Known limitations:
   Labs, Google Places, and the OpenAI-compatible AI adapter; execution remains gated by
   `AGENT_RUNTIME_READY` and the configured keys.
 - Campaign sending was unavailable when Phase 3 shipped; Phase 4B now implements
-  approval-gated outreach. Stripe checkout and account email delivery remain unavailable by
-  design and are labeled as such in the UI.
+  approval-gated outreach. Billing checkout and account email delivery remained unavailable
+  at that time; Phase 5A now implements Razorpay billing behind explicit env flags.
 - 390 px mobile QA is limited to static review of responsive classes and overflow
   containers; the in-app browser cannot emulate a device. Wide tables use horizontal
   scrollers and the sidebar collapses into the mobile navigation.
@@ -343,21 +343,55 @@ Known limitations:
 
 ## Phase 5 — Billing, limits, admin, compliance safeguards
 
+### Phase 5A — Razorpay billing (complete, 2026-11-08)
+
+Build (done):
+1. `PlanProviderPrice` maps each plan and interval to a Razorpay `plan_id`; migration
+   applied, superadmin edits monthly/yearly IDs in the admin console with audit.
+2. `src/lib/billing/razorpay.ts`: Basic-auth API client for create/fetch/cancel, hosted
+   `short_url` checkout, raw-body HMAC-SHA256 verification, webhook parsing.
+3. `src/server/services/billing.ts`: billing state, owner-gated checkout/cancel, safe
+   Razorpay-host redirect check, and transactional webhook application. Local plan state
+   changes only from a verified event; activation, past-due, paused, resumed, and canceled
+   states are handled, with end-of-period cancellation keeping paid access.
+4. `POST /api/billing/razorpay`: signature verification over the raw body, event-id
+   fallback hash, duplicate-safe 200s, and 503 when the webhook secret is missing.
+5. Settings and integrations UI: plan status/interval/renewal, checkout options only for
+   mapped intervals, cancel form, and honest unconfigured states. No client checkout
+   script.
+
+Verified:
+- Adapter unit tests cover request shaping/auth, parsing, cancellation payloads, and
+  signature accept/reject cases.
+- Integration tests cover checkout gating, unconfigured/missing-webhook refusal, plan and
+  interval mapping, webhook activation, replay idempotency, tenant isolation, status
+  mapping, downgrade to Free, and cancellation failure leaving state unchanged.
+- Browser QA: unconfigured settings state, configured checkout options (fake keys), admin
+  Razorpay plan-ID save, audit metadata, invalid-ID rejection, and the 503 webhook response.
+- `npm test` (29 files / 228 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Limitations:
+- Live Razorpay checkout/webhook verification is blocked until real test keys, a webhook
+  secret, and provider plan IDs are supplied.
+- Razorpay plan changes are not automated: the UI requires canceling the current
+  subscription before a different plan. No Billing Portal equivalent is used.
+
+### Phase 5B — Remaining enforcement, admin, compliance, security (next)
+
 Build:
-1. Stripe adapter: Checkout, Billing Portal, webhooks (signature verified, idempotent),
-   subscription state sync, plan changes, cancellation, past-due handling.
-2. Plan enforcement: atomic usage reservation for leads, runs, seats, workspaces, sends,
+1. Plan enforcement: atomic usage reservation for leads, runs, seats, workspaces, sends,
    exports; soft/hard limit behavior; upgrade prompts.
-3. Admin console: plans and limits CRUD, agent catalog and entitlements, provider status,
-   workspace overview, audit search, feature flags, superadmin-only access + audit.
-4. Compliance controls: suppression management UI + import, unsubscribe settings, sender
+2. Admin console: workspace overview and plan assignment, audit search, feature flags,
+   provider status; superadmin-only access + audit.
+3. Compliance controls: suppression management UI + import, unsubscribe settings, sender
    identity, approval policy per workspace, send caps, retention settings, DSAR/export
    and account deletion workflow.
-5. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
+4. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
    coverage review, dependency audit, permission tests.
 
 Acceptance criteria:
-- Test-mode Stripe upgrade/downgrade/cancel/webhook replay all update entitlements once.
+- Test-mode Razorpay upgrade/downgrade/cancel/webhook replay all update entitlements once.
 - Every limit is enforced server-side with an atomic test proving no overrun under
   concurrency.
 - Non-admin cannot reach admin routes or APIs; every privileged action is audited.
@@ -365,7 +399,8 @@ Acceptance criteria:
   direct API call.
 - Security checklist passes with documented residual risks.
 
-Depends on: Phase 4B, Stripe account and price IDs.
+Depends on: Phase 4B; for live billing, a Razorpay account, test keys, webhook secret, and
+plan IDs.
 
 ## Phase 6 — Verification, hardening, deployment
 
@@ -409,7 +444,7 @@ Depends on: Phase 5 and production credentials/domain.
 | Phase 4A | API keys in `.env.local`: AI model and at least one lead source (`APOLLO_API_KEY`, `PDL_API_KEY`, or `GOOGLE_PLACES_API_KEY`) |
 | Phase 4B outreach safety | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
 | Phase 4B analytics | Provider webhook/event access if you want automatic opened/replied tracking; manual outcome logging works without it |
-| Phase 5 | Stripe test keys + price IDs; confirm plan prices/limits |
+| Phase 5 | Razorpay test keys, webhook secret, and monthly/yearly `plan_id` values; confirm plan prices/limits |
 | Phase 6 | Hosting choice and domain; production keys |
 
 Never paste secrets in chat. I will provide `.env.example` and tell you exactly which

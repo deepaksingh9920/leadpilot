@@ -54,46 +54,97 @@ export async function updatePlanAction(formData: FormData): Promise<void> {
   const plan = await db.plan.findUnique({ where: { id: planId } });
   if (!plan) redirect("/admin?error=missing");
 
-  await db.$transaction(async (tx) => {
-    await tx.plan.update({
-      where: { id: planId },
-      data: {
-        name,
-        description,
-        monthlyPrice,
-        yearlyPrice,
-        isActive: formString(formData, "isActive") === "on",
-        isPublic: formString(formData, "isPublic") === "on",
-      },
-    });
+  const providerPrices = [
+    {
+      interval: "MONTHLY",
+      externalPlanId: formString(formData, "razorpayMonthlyPlanId").trim().slice(0, 120),
+    },
+    {
+      interval: "YEARLY",
+      externalPlanId: formString(formData, "razorpayYearlyPlanId").trim().slice(0, 120),
+    },
+  ];
+  if (
+    providerPrices.some(
+      (price) => price.externalPlanId && !/^[A-Za-z0-9_-]{3,120}$/.test(price.externalPlanId),
+    )
+  ) {
+    redirect("/admin?error=provider-price");
+  }
 
-    for (const limit of limits) {
-      await tx.planLimit.upsert({
-        where: { planId_metric: { planId, metric: limit.metric } },
-        update: { limit: limit.value as number },
-        create: { planId, metric: limit.metric, limit: limit.value as number },
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.plan.update({
+        where: { id: planId },
+        data: {
+          name,
+          description,
+          monthlyPrice,
+          yearlyPrice,
+          isActive: formString(formData, "isActive") === "on",
+          isPublic: formString(formData, "isPublic") === "on",
+        },
       });
-    }
 
-    await tx.auditLog.create({
-      data: {
-        actorId: session.user.id,
-        action: "plan.updated",
-        entityType: "Plan",
-        entityId: planId,
-        metadata: JSON.stringify({
-          previous: {
-            name: plan.name,
-            monthlyPrice: plan.monthlyPrice,
-            yearlyPrice: plan.yearlyPrice,
+      for (const limit of limits) {
+        await tx.planLimit.upsert({
+          where: { planId_metric: { planId, metric: limit.metric } },
+          update: { limit: limit.value as number },
+          create: { planId, metric: limit.metric, limit: limit.value as number },
+        });
+      }
+
+      for (const price of providerPrices) {
+        if (!price.externalPlanId) {
+          await tx.planProviderPrice.deleteMany({
+            where: { planId, provider: "razorpay", interval: price.interval },
+          });
+          continue;
+        }
+        await tx.planProviderPrice.upsert({
+          where: {
+            planId_provider_interval: {
+              planId,
+              provider: "razorpay",
+              interval: price.interval,
+            },
           },
-          next: { name, monthlyPrice, yearlyPrice },
-        }),
-        ip: await getClientIp(),
-        userAgent: await getUserAgent(),
-      },
+          update: { externalPlanId: price.externalPlanId },
+          create: {
+            planId,
+            provider: "razorpay",
+            interval: price.interval,
+            externalPlanId: price.externalPlanId,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "plan.updated",
+          entityType: "Plan",
+          entityId: planId,
+          metadata: JSON.stringify({
+            previous: {
+              name: plan.name,
+              monthlyPrice: plan.monthlyPrice,
+              yearlyPrice: plan.yearlyPrice,
+            },
+            next: { name, monthlyPrice, yearlyPrice },
+            providerPrices,
+          }),
+          ip: await getClientIp(),
+          userAgent: await getUserAgent(),
+        },
+      });
     });
-  });
+  } catch (error) {
+    if ((error as { code?: string }).code === "P2002") {
+      redirect("/admin?error=provider-price");
+    }
+    throw error;
+  }
 
   revalidatePath("/admin");
   revalidatePath("/pricing");

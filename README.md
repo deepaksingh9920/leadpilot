@@ -4,20 +4,22 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 4B verification and analytics complete.** Workspace, authentication,
-> onboarding, plan limits, admin configuration, lead management (CSV import, dedupe,
-> provenance, export), campaigns, the queue/worker job system, grounded agent execution,
-> approval-gated outreach, field-level verification, and campaign outcome analytics are
-> implemented and verified. Lead discovery can use Apollo, People Data Labs, or Google
-> Places; research/qualification use an OpenAI-compatible model; outreach drafts are
-> grounded in stored facts with template fallbacks. Every send requires an admin approval
-> bound to a content hash, re-checks the suppression list, and carries a signed one-click
-> unsubscribe link plus the workspace mailing address. Field checks are human attestations
-> by an admin with optional evidence, and overall lead verification is derived from
-> populated fields rather than provider claims. Campaign outcomes (replied, meeting, hard
-> bounce) are logged manually; opens stay explicitly untracked because no email webhook is
-> connected. Billing and follow-up agents remain later phases. LeadPilot never fabricates
-> leads, contact details, company facts, sources, opens, or replies.
+> **Status: Phase 5A Razorpay billing complete.** Workspace, authentication, onboarding,
+> plan limits, admin configuration, lead management (CSV import, dedupe, provenance,
+> export), campaigns, the queue/worker job system, grounded agent execution,
+> approval-gated outreach, field-level verification, campaign outcome analytics, and
+> Razorpay subscription billing are implemented and verified. Lead discovery can use Apollo,
+> People Data Labs, or Google Places; research/qualification use an OpenAI-compatible model;
+> outreach drafts are grounded in stored facts with template fallbacks. Every send requires
+> an admin approval bound to a content hash, re-checks the suppression list, and carries a
+> signed one-click unsubscribe link plus the workspace mailing address. Field checks are
+> human attestations by an admin with optional evidence, and overall lead verification is
+> derived from populated fields rather than provider claims. Campaign outcomes (replied,
+> meeting, hard bounce) are logged manually; opens stay explicitly untracked because no
+> email webhook is connected. Billing checkout runs on Razorpay's hosted payment page, and a
+> paid plan activates only from a signature-verified, idempotent webhook. Remaining Phase 5
+> enforcement/admin/compliance work and follow-up agents are still later. LeadPilot never
+> fabricates leads, contact details, company facts, sources, opens, or replies.
 
 ## Stack
 
@@ -80,7 +82,13 @@ configured:
   is simulated. Sends also require a workspace mailing address in **Settings**.
 - `EMAIL_REPLY_TO` — optional default reply-to; outreach prefers the workspace sender
   email when one is set.
-- `STRIPE_*` — subscription checkout and plan changes (not implemented yet).
+- `BILLING_PROVIDER`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+  `RAZORPAY_WEBHOOK_SECRET` — subscription checkout and plan changes. Checkout is refused
+  until the keys **and** webhook secret are set, so payment can never be taken without an
+  activation path. A workspace owner starts checkout on **Settings → Plan and usage**; the
+  monthly/yearly Razorpay `plan_id` values are pasted into the admin console. Paid plans
+  change only after a verified `POST /api/billing/razorpay` webhook. Without these values
+  the workspace stays on Free and no payment method is collected.
 - `WORKER_SECRET` — authenticates `POST /api/worker/run`; the endpoint returns 503 while
   it is unset.
 - `AGENT_RUNTIME_READY` — operator switch for job execution. Keep it `false` until the AI
@@ -180,6 +188,17 @@ overall status is recomputed from its populated fields: it becomes `VERIFIED` on
 every populated verifiable field has a human `VERIFIED` record. Provider data alone never
 marks a field verified.
 
+**Billing** — plan records carry admin-editable monthly and yearly Razorpay plan IDs.
+Only the workspace owner can start checkout or cancel. Checkout creates a Razorpay
+subscription server-side and redirects to its hosted `short_url`; the redirect is limited to
+Razorpay hosts. Local plan state does not change at checkout: `POST /api/billing/razorpay`
+verifies the raw-body HMAC signature, records each event exactly once in `WebhookEvent`,
+maps the provider plan ID when notes are absent, and applies activation, past-due, paused,
+resumed, and canceled states in one transaction. Cancellation defaults to end of the paid
+period; an immediate cancellation downgrades to Free. Every checkout and cancellation
+writes an audit entry. A testisable adapter and integration suite cover activation, replay
+idempotency, plan mapping, tenant isolation, and cancellation.
+
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, security headers, and server-side limit checks. Outreach cannot
 be sent without an admin approval, and suppressed addresses are blocked at draft time and
@@ -189,7 +208,10 @@ again immediately before delivery.
 
 - Provider-webhook event tracking for opens/replies (outcomes are manual today).
 - Follow-up agent: due-date queue and reminders (no auto-send).
-- Stripe checkout, webhooks, and paid plan changes.
+- Live Razorpay verification: the adapter and tests are complete, but checkout/webhooks
+  stay disabled until real test keys, a webhook secret, and Razorpay plan IDs are supplied.
+- Phase 5 limit enforcement for seats and workspaces, admin workspace plan assignment,
+  retention/DSAR controls, and campaign/outreach compliance settings.
 - Team invitations.
 - Postgres deployment and production hardening.
 - Executors for `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP`; those agents stay
@@ -208,7 +230,7 @@ src/
     (app)/           Dashboard, leads (import/detail), campaigns
                      (new/detail/messages), agents, runs, integrations,
                      settings (incl. suppression), admin
-    api/             CSV export and worker endpoints
+    api/             CSV export, worker, and Razorpay webhook endpoints
     onboarding/      Three-step setup wizard
     unsubscribe/     Public signed unsubscribe page
   components/
@@ -223,6 +245,7 @@ src/
   lib/
     agents/          Runtime gating, output schemas, input schemas
     auth/            Sessions, roles, rate limits, audit
+    billing/         Razorpay API adapter, signature verification, webhook parsing
     email/           Resend adapter
     jobs/            Queue policy, leases, retry backoff
     leads/           Import mapping and dedupe
@@ -251,13 +274,16 @@ npm run test
 Unit tests cover CSV parsing, import mapping and dedupe rules, agent input/output schemas,
 runtime gating, job policy, validation, role hierarchy, rate-limit behavior, formatting
 helpers, grounded outreach templates and approval hashes, unsubscribe token signing, and
-provider request shaping/normalization/error mapping for Apollo, PDL, Google Places, and the
-AI adapter. Database integration tests create a throwaway SQLite database with
-`prisma db push` and exercise the real import, job, agent-executor, outreach, suppression,
-and unsubscribe services, including transactions, unique constraints, retries,
-cancellation, usage refunds, approval hash revocation, suppression at draft and send time,
-provider failures with allowance release, the Resend payload, and public unsubscribe. The
-suite is **24 files / 177 tests**. Before shipping any change, also run `npm run lint`,
+provider request shaping/normalization/error mapping for Apollo, PDL, Google Places, the AI
+adapter, and the Razorpay billing adapter (auth headers, checkout/cancel payloads, webhook
+parsing, and HMAC signature verification). Database integration tests create a throwaway
+SQLite database with `prisma db push` and exercise the real import, job, agent-executor,
+outreach, suppression, unsubscribe, and billing services, including transactions, unique
+constraints, retries, cancellation, usage refunds, approval hash revocation, suppression at
+draft and send time, provider failures with allowance release, the Resend payload, public
+unsubscribe, Razorpay checkout, webhook activation and replay idempotency, plan mapping,
+tenant isolation, downgrade to Free, and refusal to transact without credentials. The
+suite is **29 files / 228 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

@@ -129,15 +129,15 @@ export default async function IntegrationsPage() {
           "Subscription checkout and plan changes. Until configured, only the Free plan is created.",
         providers: [
           {
-            name: "Stripe",
-            description: "Subscription billing and webhook-driven plan updates.",
+            name: "Razorpay",
+            description: "Subscription billing with signature-verified, idempotent webhooks.",
             envKeys: [
-              "STRIPE_SECRET_KEY",
-              "STRIPE_WEBHOOK_SECRET",
-              "STRIPE_PRICE_STARTER_MONTHLY",
+              "RAZORPAY_KEY_ID",
+              "RAZORPAY_KEY_SECRET",
+              "RAZORPAY_WEBHOOK_SECRET",
             ],
-            configured: env.billingConfigured,
-            note: "Checkout is not exposed in this build. Plan records and limits are ready.",
+            configured: env.billingWebhooksConfigured,
+            note: "Checkout creates a Razorpay subscription and redirects to its hosted payment page. Paid plans activate only after a verified webhook.",
           },
         ],
       },

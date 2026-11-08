@@ -132,7 +132,12 @@ export async function getAdminOverview() {
   const [plans, agents, workspaces, users, recentAudit] = await Promise.all([
     db.plan.findMany({
       orderBy: { sortOrder: "asc" },
-      include: { limits: true, agents: true, _count: { select: { subscriptions: true } } },
+      include: {
+        limits: true,
+        agents: true,
+        providerPrices: true,
+        _count: { select: { subscriptions: true } },
+      },
     }),
     db.agentDefinition.findMany({ orderBy: { sortOrder: "asc" } }),
     db.workspace.count({ where: { deletedAt: null } }),
