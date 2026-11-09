@@ -57,6 +57,7 @@ export async function createTestTenant(
     runLimit?: number;
     exportLimit?: number;
     sendLimit?: number;
+    seatLimit?: number;
   },
 ) {
   const suffix = `${options.key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -80,6 +81,8 @@ export async function createTestTenant(
           { metric: "agent_runs_per_month", limit: options.runLimit ?? 10 },
           { metric: "exports_per_month", limit: options.exportLimit ?? 5 },
           { metric: "sends_per_day", limit: options.sendLimit ?? 20 },
+          { metric: "seats", limit: options.seatLimit ?? 5 },
+          { metric: "workspaces", limit: 1 },
         ],
       },
     },

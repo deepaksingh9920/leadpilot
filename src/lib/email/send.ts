@@ -123,6 +123,30 @@ export async function sendVerificationEmail(
   });
 }
 
+export async function sendInviteEmail(
+  to: string,
+  workspaceName: string,
+  inviterName: string,
+  role: string,
+  token: string,
+): Promise<EmailResult> {
+  const url = `${env.appUrl}/invite/${encodeURIComponent(token)}`;
+  const roleLabel = role.charAt(0) + role.slice(1).toLowerCase();
+  return sendEmail({
+    to,
+    subject: `${inviterName} invited you to ${workspaceName} on LeadPilot`,
+    text: `Hi,\n\n${inviterName} invited you to join the ${workspaceName} workspace on LeadPilot as ${roleLabel}.\n\nAccept the invitation: ${url}\n\nThis link expires in 7 days. If you were not expecting this invitation, you can ignore this email.`,
+    html: layout(
+      "You have been invited",
+      `<p style="margin:0 0 16px;line-height:1.6;">${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(workspaceName)}</strong> on LeadPilot as ${escapeHtml(roleLabel)}.</p>
+       <p style="margin:0 0 24px;line-height:1.6;">Accept the invitation to review leads, campaigns, and drafts with the team.</p>
+       <a href="${url}" style="display:inline-block;background:#4338ca;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600;">Accept invitation</a>
+       <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">This link expires in 7 days. If you were not expecting this invitation, you can ignore this email.</p>`,
+      "You received this email because a workspace administrator invited this address.",
+    ),
+  });
+}
+
 export async function sendPasswordResetEmail(
   to: string,
   name: string,

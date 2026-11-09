@@ -17,7 +17,7 @@ customer data.
 | Google Places lead discovery | Implemented |
 | CSV import with mapping and dedupe | Implemented (Phase 3) |
 | Lead Finder / Company Research / Lead Qualification executors | Implemented |
-| Email delivery (verification, reset, outreach) | Implemented through Resend; requires keys |
+| Email delivery (verification, reset, invitations, outreach) | Implemented through Resend; requires keys |
 | Outreach drafting and approval gate | Implemented (Phase 4B) |
 | Suppression list and public unsubscribe | Implemented (Phase 4B) |
 | Campaign analytics and field verification | Implemented (Phase 4B): manual outcomes and human field checks; no provider webhook |
@@ -185,6 +185,14 @@ outreach returns `DISABLED` before the email provider is called. Pausing sending
 delete drafts, revoke approvals, or consume the daily allowance. Every change is
 audit-logged. Use these for incidents or abuse response without redeploying; they are not a
 substitute for per-workspace limits or provider credentials.
+
+## 6b. Team invitation email
+
+Invitations are sent through the same Resend adapter as verification and reset mail. Links
+use `{APP_URL}/invite/{token}` and expire after seven days. When `RESEND_API_KEY` or
+`EMAIL_FROM` is absent, the invitation is still created and audit-logged, and the settings
+page shows the inviter a copyable link plus a warning that no email was sent. There is no
+separate invitation provider or webhook.
 
 ## 7. Monitoring (optional)
 

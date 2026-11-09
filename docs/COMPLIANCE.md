@@ -147,12 +147,27 @@ Implemented in Phase 4B and enforced server-side:
   platform administration; customer workspace content is not exposed beyond the fields
   needed to identify the event.
 
+### Team invitations
+
+- Invitations are scoped to one workspace and one email, are single-use, expire after seven
+  days, and are stored only as token hashes. Pending invitations reserve a seat; revoking one
+  releases it.
+- Only the workspace owner can invite an admin, which prevents an admin from creating a peer
+  who could later alter approvals or billing-adjacent settings.
+- Accepting requires the signed-in email to match. A new teammate proves control of the
+  invited address by holding the token; that sets the email as verified. No invitation can
+  grant access to data in another workspace.
+- Invite, revoke, and accept events are audit-logged with email and role. Workspace content
+  is not included in the invitation email.
+
 ## 7. Customer-facing controls
 
 - Suppression list: add/remove manually, import CSV, view reason/source/date
   (implemented at **Settings → Suppression**).
 - Approval and send caps enforced server-side; campaign daily caps are configurable
   (implemented). A per-workspace approval-policy setting remains pending.
+- Team invitations and seat limits: admins invite by email, pending invites reserve seats,
+  and only the owner can invite an admin (implemented in Phase 5B slice 2).
 - Sender identity, mailing address, and unsubscribe footer (implemented; address required
   before approval).
 - Billing is owner-only: the settings page shows the current provider status, interval, and
@@ -178,6 +193,8 @@ by a superadmin and recorded.
       tested with injected provider stubs (Phase 5A).
 - [x] Admin workspace plan assignment, platform feature switches, and audit search tested;
       assignment refuses live provider-managed subscriptions (Phase 5B slice 1).
+- [x] Team invitations, seat reservation, revocation, expiry, wrong-email refusal, and
+      invite registration tested (Phase 5B slice 2).
 - [ ] Live Razorpay checkout, webhook delivery, and cancellation verified with real test
       credentials and provider plan IDs.
 - [ ] Payment/webhook subprocessor entry and billing terms reviewed for launch.

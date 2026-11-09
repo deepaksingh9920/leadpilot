@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags · Last updated: 2026-11-09
+Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement · Last updated: 2026-11-09
 
 ## Working rules
 
@@ -409,12 +409,44 @@ Verified:
 - `npm test` (30 files / 245 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
   pass.
 
+#### Slice 2 — Team invitations and seat enforcement (complete, 2026-11-09)
+
+Build (done):
+1. `src/server/services/team.ts`: invite, revoke, preview, accept, and
+   register-and-accept flows. Pending unexpired invitations reserve a seat; the seat cap is
+   checked after a no-op write to the workspace row, which serializes concurrent invites and
+   acceptances in SQLite. Only admins/owners can invite; only the owner can invite an admin.
+2. Invitations are single-use bearer tokens stored only as SHA-256 hashes, expire after seven
+   days, and are scoped to one workspace and email. Accepting requires the signed-in email to
+   match; a new teammate registers from the same link, which proves address ownership and
+   sets `emailVerifiedAt`. Public signup switches do not block invite-based registration.
+3. `src/lib/email/send.ts`: `sendInviteEmail` with the 7-day expiry copy; when email is not
+   configured, the inviter still gets a copyable share link and an honest warning.
+4. `/settings` Team card: live seat count including pending invites, member list, pending
+   invitation list with revoke, and a role-aware invite form. `/invite/[token]` handles
+   invalid/expired/accepted links, signed-in wrong-account warnings, existing-account sign-in,
+   and new-account registration.
+5. Server actions are role-gated and rate-limited; invites, revocations, and acceptances write
+   audit entries with role/email metadata.
+
+Verified:
+- `team.integration.test.ts` covers invite permission and admin-escalation rules, duplicate
+  and existing-member conflicts, seat reservation/refusal, revocation and seat release,
+  existing-account acceptance, wrong-email refusal, new-account registration, replay refusal,
+  expiry for preview/accept/register, seat-limit refusal at accept time, tenant scoping, and
+  the seven-day TTL.
+- Browser QA: assigned a 10-seat plan, invited a teammate, saw the pending invite and 2/10
+  seats, opened the link while signed in as the wrong account, registered a new account from
+  the link into the workspace, and revoked a second invite with the seat count returning to
+  2/10.
+- `npm test` (31 files / 256 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
 Remaining Phase 5B:
-1. Plan enforcement: atomic seat and additional-workspace reservation; soft/hard limit
-   behavior; upgrade prompts. Lead, run, send, and export reservations already exist.
-2. Compliance controls: suppression management UI + import, unsubscribe settings, sender
-   identity, approval policy per workspace, retention settings, DSAR/export and account
-   deletion workflow.
+1. Workspace-count enforcement is blocked: there is no account-level billing model or an
+   extra-workspace creation flow, so the limit can only be displayed.
+2. Compliance controls: retention settings, DSAR/export and account deletion workflow,
+   per-workspace approval policy, and campaign/outreach compliance settings.
 3. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
    coverage review, dependency audit, permission tests.
 

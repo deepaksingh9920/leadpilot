@@ -3,6 +3,8 @@ import { Ban, CheckCircle2, KeyRound, MailWarning, ShieldCheck, Users } from "lu
 
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
 import { PasswordForm } from "@/components/settings/password-form";
+import { PendingInvites } from "@/components/settings/pending-invites";
+import { TeamInviteForm } from "@/components/settings/team-invite-form";
 import {
   BillingCheckoutOptions,
   CancelSubscriptionForm,
@@ -13,7 +15,6 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { db } from "@/lib/db";
 import { canManageBilling, requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { formatCurrency, formatDate, percentage } from "@/lib/utils";
@@ -23,6 +24,7 @@ import {
   getBillingState,
 } from "@/server/services/billing";
 import { countSuppressions } from "@/server/services/suppression";
+import { getTeamState } from "@/server/services/team";
 import { getUsageSummary, METRIC_LABELS } from "@/server/services/workspaces";
 
 export const metadata = { title: "Settings" };
@@ -47,22 +49,21 @@ export default async function SettingsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
 
-  const [memberships, usage, suppressedCount, billing] = await Promise.all([
-    db.membership.findMany({
-      where: { workspaceId: context.workspace.id },
-      include: { user: { select: { id: true, name: true, email: true } } },
-      orderBy: { createdAt: "asc" },
-    }),
+  const [team, usage, suppressedCount, billing] = await Promise.all([
+    getTeamState(context.workspace.id),
     getUsageSummary(context.workspace.id),
     countSuppressions(context.workspace.id),
     getBillingState(context.workspace.id),
   ]);
+  const { memberships, invites, seatLimit, seatsUsed } = team;
 
   const profile = context.workspace.profile;
   const canEdit = roleAtLeast(context.role, "ADMIN");
+  const canManage = roleAtLeast(context.role, "ADMIN");
+  const canInviteAdmin = roleAtLeast(context.role, "OWNER");
   const plan = context.plan;
   const limits = context.limits;
-  const seatLimit = limits.seats ?? 1;
+  const seatsLeft = Math.max(0, seatLimit - seatsUsed);
   const subscription = billing.subscription;
   const canBill = canManageBilling(context.role);
   const canCancelNow = Boolean(
@@ -212,8 +213,8 @@ export default async function SettingsPage() {
             title="Team"
             description="Members of this workspace and their role."
             action={
-              <Badge tone="outline">
-                {memberships.length} / {seatLimit} seats
+              <Badge tone={seatsLeft === 0 ? "warning" : "outline"}>
+                {seatsUsed} / {seatLimit} seats
               </Badge>
             }
           />
@@ -236,13 +237,30 @@ export default async function SettingsPage() {
               </li>
             ))}
           </ul>
-          <div className="border-t border-line px-5 py-3">
-            <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted">
-              <Users className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              Team invitations are part of the collaboration phase. Seats are already counted
-              so limits stay accurate when invitations are enabled.
-            </p>
-          </div>
+          <PendingInvites
+            invites={invites.map((invite) => ({
+              id: invite.id,
+              email: invite.email,
+              role: invite.role,
+              expiresAt: formatDate(invite.expiresAt),
+              invitedByName: invite.invitedBy?.name ?? null,
+            }))}
+          />
+          {canManage ? (
+            <div className="border-t border-line px-5 py-4">
+              <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+                <Users className="size-3.5" aria-hidden="true" />
+                Invite a teammate
+              </p>
+              <TeamInviteForm canInviteAdmin={canInviteAdmin} seatsLeft={seatsLeft} />
+            </div>
+          ) : (
+            <div className="border-t border-line px-5 py-3">
+              <p className="text-[11px] leading-relaxed text-muted">
+                Only workspace admins and owners can invite teammates.
+              </p>
+            </div>
+          )}
         </Card>
 
         <Card id="plan">
@@ -269,7 +287,7 @@ export default async function SettingsPage() {
             {PLAN_METRICS.filter((metric) => limits[metric] !== undefined).map((metric) => {
               const used =
                 metric === "seats"
-                  ? memberships.length
+                  ? seatsUsed
                   : metric === "workspaces"
                     ? context.memberships.length
                     : (usage[metric] ?? 0);
@@ -299,7 +317,7 @@ export default async function SettingsPage() {
               </p>
               <p className="mt-1">
                 {!billing.configured
-                  ? "Billing is not configured in this environment. Your workspace stays on the Free plan; no payment method is collected."
+                  ? `Billing is not configured in this environment, so payments cannot be collected here. Your workspace is on the ${plan?.name ?? "Free"} plan; no payment method is stored.`
                   : subscription?.providerSubscriptionId
                     ? `Payments are processed by Razorpay. ${
                         BILLING_STATUS_LABELS[subscription.status] ?? subscription.status

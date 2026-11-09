@@ -237,6 +237,23 @@ previous and next values. The audit view searches action, entity ID, metadata, a
 workspace name, filters by workspace, action prefix, and date range, and paginates newest
 first. Audit reads are not themselves audited in this slice.
 
+### Team invitations and seat enforcement
+
+Seats are consumed by memberships and by pending, unexpired invitations. Inviting and
+accepting both run inside a transaction that first performs a no-op update on the workspace
+row. SQLite serializes that write, so a second concurrent transaction counts committed
+members and cannot oversell the plan. The cap is re-checked at acceptance: an invitation
+reserves a seat, but if an admin fills the last seat before it is accepted, acceptance fails
+with `LIMIT` rather than bypassing the plan.
+
+Invitations store only `sha256(token)`; the raw token exists in the emailed link. They are
+scoped to one workspace and email, are single-use, and expire after seven days. Only
+admins/owners can invite, and only an owner can invite another admin. Acceptance requires a
+signed-in user whose email matches the invitation. A new teammate registers from the same
+link; holding the token proves control of the address, so `emailVerifiedAt` is set and the
+membership is created in one transaction. Invite-based registration is intentionally not
+gated by the public `signups` switch. Invite, revoke, and accept each write an audit entry.
+
 ## 8. Data provenance and verification
 
 `Lead.verificationStatus` is one of `UNVERIFIED`, `PARTIAL`, `VERIFIED`, and each

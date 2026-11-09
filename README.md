@@ -11,7 +11,10 @@ every send waits for a human decision.
 > Razorpay subscription billing are implemented and verified. The admin console now also
 > assigns plans to individual workspaces (refusing live provider-managed subscriptions),
 > searches the platform audit log with filters and pagination, and controls platform-wide
-> feature switches for signups, CSV import, and outreach sending. Lead discovery can use
+> feature switches for signups, CSV import, and outreach sending. Workspace admins and
+> owners can invite teammates by email; pending invitations reserve a seat, only the owner
+> can invite another admin, and a new teammate can create an account from the invite link
+> with a verified email. Lead discovery can use
 > Apollo, People Data Labs, or Google Places; research/qualification use an OpenAI-compatible
 > model; outreach drafts are grounded in stored facts with template fallbacks. Every send
 > requires an admin approval bound to a content hash, re-checks the suppression list, and
@@ -21,7 +24,7 @@ every send waits for a human decision.
 > outcomes (replied, meeting, hard bounce) are logged manually; opens stay explicitly
 > untracked because no email webhook is connected. Billing checkout runs on Razorpay's
 > hosted payment page, and a paid plan activates only from a signature-verified, idempotent
-> webhook. Remaining Phase 5 seat/workspace enforcement, retention/DSAR controls, security
+> webhook. Remaining Phase 5 workspace-count enforcement, retention/DSAR controls, security
 > hardening, and follow-up agents are still later. LeadPilot never fabricates leads, contact
 > details, company facts, sources, opens, or replies.
 
@@ -33,7 +36,7 @@ every send waits for a human decision.
 | UI | React 19, TypeScript strict, Tailwind CSS v4, Recharts, lucide-react |
 | Data | Prisma 6 + SQLite locally (Postgres planned for production) |
 | Auth | Custom bcrypt credentials, hashed DB sessions, DB-backed rate limits |
-| Email | Resend adapter for verification, reset, and approval-gated outreach |
+| Email | Resend adapter for verification, reset, invitations, and approval-gated outreach |
 | Tests | Vitest |
 
 ## Quick start
@@ -213,6 +216,15 @@ without hiding drafts or approvals. Every plan change, workspace assignment, and
 change is audit-logged with previous and next values. The audit log supports keyword,
 workspace, action, and date filters with pagination.
 
+**Team management** — admins and owners invite teammates from **Settings → Team**. The
+inviter picks Member, Viewer, or (owner only) Admin. Pending, unexpired invitations reserve
+a seat, and the seat cap is checked inside a transaction that locks the workspace row, so
+two concurrent invites cannot oversell the plan. Invitations expire after seven days;
+revoking one frees the seat. A new teammate registers from the `/invite/[token]` link, which
+proves ownership of the invited address and marks the email verified; an existing account
+signs in and accepts there instead. The invitee is added only when the signed-in email
+matches the invitation, and every invite, revocation, and acceptance writes an audit entry.
+
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, security headers, and server-side limit checks. Outreach cannot
 be sent without an admin approval, and suppressed addresses are blocked at draft time and
@@ -224,9 +236,10 @@ again immediately before delivery.
 - Follow-up agent: due-date queue and reminders (no auto-send).
 - Live Razorpay verification: the adapter and tests are complete, but checkout/webhooks
   stay disabled until real test keys, a webhook secret, and Razorpay plan IDs are supplied.
-- Phase 5 limit enforcement for seats and workspaces, retention/DSAR controls, per-workspace
-  approval policy, and campaign/outreach compliance settings.
-- Team invitations.
+- Workspace-count limit enforcement: no account-level billing or extra-workspace creation
+  flow exists yet, so the limit is shown but cannot be exercised.
+- Retention/DSAR controls, per-workspace approval policy, and campaign/outreach compliance
+  settings.
 - Postgres deployment and production hardening.
 - Executors for `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP`; those agents stay
   disabled.
@@ -240,7 +253,7 @@ the phase plan and `docs/ARCHITECTURE.md` for the design.
 src/
   app/
     (marketing)/     Landing, features, pricing
-    (auth)/          Login, signup, reset, verification
+    (auth)/          Login, signup, invite acceptance, reset, verification
     (app)/           Dashboard, leads (import/detail), campaigns
                      (new/detail/messages), agents, runs, integrations,
                      settings (incl. suppression), admin
@@ -292,14 +305,16 @@ provider request shaping/normalization/error mapping for Apollo, PDL, Google Pla
 adapter, and the Razorpay billing adapter (auth headers, checkout/cancel payloads, webhook
 parsing, and HMAC signature verification). Database integration tests create a throwaway
 SQLite database with `prisma db push` and exercise the real import, job, agent-executor,
-outreach, suppression, unsubscribe, billing, and admin services, including transactions,
-unique constraints, retries, cancellation, usage refunds, approval hash revocation,
-suppression at draft and send time, provider failures with allowance release, the Resend
-payload, public unsubscribe, Razorpay checkout, webhook activation and replay idempotency,
-plan mapping, tenant isolation, downgrade to Free, refusal to transact without credentials,
-workspace plan assignment, provider-managed conflicts, and feature switches that block
-signup, import, or sending. The suite is **30 files / 245 tests**. Before shipping any change,
-also run `npm run lint`, `npm run typecheck`, and `npm run build`.
+outreach, suppression, unsubscribe, billing, admin, and team services, including
+transactions, unique constraints, retries, cancellation, usage refunds, approval hash
+revocation, suppression at draft and send time, provider failures with allowance release,
+the Resend payload, public unsubscribe, Razorpay checkout, webhook activation and replay
+idempotency, plan mapping, tenant isolation, downgrade to Free, refusal to transact without
+credentials, workspace plan assignment, provider-managed conflicts, feature switches that
+block signup, import, or sending, and invite permissions, seat reservation, revocation,
+expiry, wrong-email refusal, and new-account registration. The suite is **31 files / 256
+tests**. Before shipping any change, also run `npm run lint`, `npm run typecheck`, and
+`npm run build`.
 
 ## A note on data ethics
 
