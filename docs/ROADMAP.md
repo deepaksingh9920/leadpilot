@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5A Razorpay billing complete — hosted checkout, signed/idempotent webhooks, owner-gated cancel, plan mapping · Last updated: 2026-11-08
+Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags · Last updated: 2026-11-09
 
 ## Working rules
 
@@ -377,17 +377,45 @@ Limitations:
 - Razorpay plan changes are not automated: the UI requires canceling the current
   subscription before a different plan. No Billing Portal equivalent is used.
 
-### Phase 5B — Remaining enforcement, admin, compliance, security (next)
+### Phase 5B — Remaining enforcement, admin, compliance, security (in progress)
 
-Build:
-1. Plan enforcement: atomic usage reservation for leads, runs, seats, workspaces, sends,
-   exports; soft/hard limit behavior; upgrade prompts.
-2. Admin console: workspace overview and plan assignment, audit search, feature flags,
-   provider status; superadmin-only access + audit.
-3. Compliance controls: suppression management UI + import, unsubscribe settings, sender
-   identity, approval policy per workspace, send caps, retention settings, DSAR/export
-   and account deletion workflow.
-4. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
+#### Slice 1 — Admin console and platform switches (complete, 2026-11-09)
+
+Build (done):
+1. `src/lib/features.ts`: database-backed `signups`, `csv_import`, and `outreach_sending`
+   switches stored as `feature.<key>` in `Setting`, defaulting to enabled.
+2. Service-level gates: signup returns a clear configuration error, CSV import returns
+   `DISABLED`, and outreach sending returns `DISABLED` before any provider call. Drafts,
+   approvals, suppression checks, and existing leads stay available.
+3. `src/server/services/admin.ts`: paginated workspace listing with owner/plan/member/lead
+   data and keyword search; manual plan assignment that refuses a live provider-managed
+   subscription with `CONFLICT`; feature-flag updates; audit search with keyword,
+   workspace, action-prefix, and date filters plus pagination.
+4. `/admin`: workspace table with inline plan assignment, feature-flag card, audit
+   search/filter/pagination, and honest saved/error banners. Workspaces billed through
+   Razorpay show a read-only plan instead of the selector.
+5. Server actions are superadmin-gated and audit `workspace.plan_assigned` and
+   `platform.feature_flags_updated` with previous/next values.
+
+Verified:
+- `admin.integration.test.ts` covers default-on flags, toggle persistence and single audit,
+  invalid payloads, signup blocking, workspace search/pagination, assignment/no-op/conflict
+  handling, and audit filters/pagination.
+- `outreach.integration.test.ts` proves the send switch blocks delivery, leaves the message
+  approved, and reserves no allowance. `imports.integration.test.ts` proves the import
+  switch leaves no leads, import record, or usage behind.
+- Browser QA: workspace search, no-op plan assignment, switching outreach off and back on
+  with audit rows, and audit filters/pagination.
+- `npm test` (30 files / 245 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Remaining Phase 5B:
+1. Plan enforcement: atomic seat and additional-workspace reservation; soft/hard limit
+   behavior; upgrade prompts. Lead, run, send, and export reservations already exist.
+2. Compliance controls: suppression management UI + import, unsubscribe settings, sender
+   identity, approval policy per workspace, retention settings, DSAR/export and account
+   deletion workflow.
+3. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
    coverage review, dependency audit, permission tests.
 
 Acceptance criteria:

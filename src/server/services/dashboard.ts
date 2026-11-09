@@ -129,7 +129,7 @@ export async function getDashboardData(workspaceId: string) {
 }
 
 export async function getAdminOverview() {
-  const [plans, agents, workspaces, users, recentAudit] = await Promise.all([
+  const [plans, agents, workspaces, users] = await Promise.all([
     db.plan.findMany({
       orderBy: { sortOrder: "asc" },
       include: {
@@ -142,15 +142,7 @@ export async function getAdminOverview() {
     db.agentDefinition.findMany({ orderBy: { sortOrder: "asc" } }),
     db.workspace.count({ where: { deletedAt: null } }),
     db.user.count({ where: { disabledAt: null } }),
-    db.auditLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: {
-        actor: { select: { name: true, email: true } },
-        workspace: { select: { name: true } },
-      },
-    }),
   ]);
 
-  return { plans, agents, workspaces, users, recentAudit };
+  return { plans, agents, workspaces, users };
 }

@@ -45,6 +45,33 @@ afterAll(async () => {
 });
 
 describe("CSV import", () => {
+  it("refuses imports while the platform switch is off without touching leads", async () => {
+    const target = await createTestTenant(db, { key: "import-disabled" });
+    await db.setting.upsert({
+      where: { key: "feature.csv_import" },
+      update: { value: "false" },
+      create: { key: "feature.csv_import", value: "false" },
+    });
+
+    try {
+      const result = await importLeadsCsv({
+        workspaceId: target.workspace.id,
+        userId: target.user.id,
+        filename: "leads.csv",
+        content: CSV,
+        mapping: MAPPING,
+        rightsConfirmed: true,
+      });
+
+      expect(result).toMatchObject({ ok: false, code: "DISABLED" });
+      expect(await db.lead.count({ where: { workspaceId: target.workspace.id } })).toBe(0);
+      expect(await db.leadImport.count({ where: { workspaceId: target.workspace.id } })).toBe(0);
+      expect(await leadUsage(target.workspace.id)).toBe(0);
+    } finally {
+      await db.setting.deleteMany({ where: { key: "feature.csv_import" } });
+    }
+  });
+
   it("stores valid rows, reports duplicates and invalid rows, and reserves usage", async () => {
     const result = await importLeadsCsv({
       workspaceId: tenant.workspace.id,

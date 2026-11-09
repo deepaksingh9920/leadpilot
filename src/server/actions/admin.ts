@@ -5,8 +5,13 @@ import { redirect } from "next/navigation";
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
+import { FEATURE_FLAGS, type FeatureFlagKey } from "@/lib/features";
 import { formString } from "@/lib/form";
 import { getClientIp, getUserAgent } from "@/lib/request";
+import {
+  assignWorkspacePlan,
+  updateFeatureFlags,
+} from "@/server/services/admin";
 
 const METRICS = [
   "leads_per_month",
@@ -148,5 +153,52 @@ export async function updatePlanAction(formData: FormData): Promise<void> {
 
   revalidatePath("/admin");
   revalidatePath("/pricing");
-  redirect("/admin?saved=1");
+  redirect("/admin?saved=plan");
+}
+
+export async function assignWorkspacePlanAction(formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session || !session.user.isSuperAdmin) redirect("/dashboard");
+
+  const workspaceId = formString(formData, "workspaceId");
+  const planId = formString(formData, "planId");
+  if (!workspaceId || !planId) redirect("/admin?error=workspace");
+
+  const result = await assignWorkspacePlan({
+    workspaceId,
+    planId,
+    actorId: session.user.id,
+    ip: await getClientIp(),
+    userAgent: await getUserAgent(),
+  });
+
+  if (!result.ok) {
+    redirect(result.code === "CONFLICT" ? "/admin?error=provider-managed" : "/admin?error=workspace");
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  redirect("/admin?saved=workspace");
+}
+
+export async function updateFeatureFlagsAction(formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session || !session.user.isSuperAdmin) redirect("/dashboard");
+
+  const flags: Partial<Record<FeatureFlagKey, boolean>> = {};
+  for (const flag of FEATURE_FLAGS) {
+    flags[flag.key] = formString(formData, `flag_${flag.key}`) === "on";
+  }
+
+  const result = await updateFeatureFlags({
+    flags,
+    actorId: session.user.id,
+    ip: await getClientIp(),
+    userAgent: await getUserAgent(),
+  });
+  if (!result.ok) redirect("/admin?error=flags");
+
+  revalidatePath("/admin");
+  redirect("/admin?saved=flags");
 }

@@ -12,6 +12,7 @@ import {
 import { env } from "@/lib/env";
 import { normalizeEmail, randomToken, sha256 } from "@/lib/security/hash";
 import { writeAuditLog } from "@/lib/auth/audit";
+import { isFeatureEnabled } from "@/lib/features";
 import { createWorkspaceWithDefaults } from "@/server/services/workspaces";
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +35,14 @@ export type SignUpResult =
   | { ok: false; code: "EMAIL_TAKEN" | "CONFIG" | "UNKNOWN"; message: string };
 
 export async function signUp(input: SignUpInput): Promise<SignUpResult> {
+  if (!(await isFeatureEnabled("signups"))) {
+    return {
+      ok: false,
+      code: "CONFIG",
+      message: "New signups are paused platform-wide. Contact the platform administrator.",
+    };
+  }
+
   const email = normalizeEmail(input.email);
   const passwordHash = await hashPassword(input.password);
   const verificationToken = randomToken(32);

@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
+Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use
@@ -22,6 +22,7 @@ customer data.
 | Suppression list and public unsubscribe | Implemented (Phase 4B) |
 | Campaign analytics and field verification | Implemented (Phase 4B): manual outcomes and human field checks; no provider webhook |
 | Razorpay subscription billing | Implemented (Phase 5A): hosted checkout, signed/idempotent webhooks, cancel; disabled until keys and webhook secret exist |
+| Platform feature switches | Implemented (Phase 5B): DB-backed signup, CSV-import, and outreach-send switches with audit |
 
 `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor in this build.
 They remain disabled and are not advertised as runnable. Resend webhooks are also not
@@ -174,6 +175,16 @@ Free. Missing provider notes are resolved through `PlanProviderPrice` by externa
 Live verification is still pending because this checkout has no real Razorpay test keys or
 webhook secret. The adapter, webhook route, and integration tests use injected `fetch`
 stubs; nothing is simulated in the running app.
+
+## 6a. Platform switches
+
+`signups`, `csv_import`, and `outreach_sending` are database-backed switches in
+**Admin → Feature flags**, not environment variables. They default to enabled and change
+runtime behavior immediately: signup is refused, CSV import returns `DISABLED`, and approved
+outreach returns `DISABLED` before the email provider is called. Pausing sending does not
+delete drafts, revoke approvals, or consume the daily allowance. Every change is
+audit-logged. Use these for incidents or abuse response without redeploying; they are not a
+substitute for per-workspace limits or provider credentials.
 
 ## 7. Monitoring (optional)
 

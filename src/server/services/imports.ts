@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
+import { isFeatureEnabled } from "@/lib/features";
 import {
   mappingIsUsable,
   prepareImport,
@@ -25,7 +26,7 @@ export type ImportResult =
     }
   | {
       ok: false;
-      code: "EMPTY" | "MAPPING" | "LIMIT_REACHED" | "INVALID";
+      code: "EMPTY" | "MAPPING" | "LIMIT_REACHED" | "INVALID" | "DISABLED";
       message: string;
       issues?: RowIssue[];
     };
@@ -40,6 +41,14 @@ export type ImportLeadsInput = {
 };
 
 export async function importLeadsCsv(input: ImportLeadsInput): Promise<ImportResult> {
+  if (!(await isFeatureEnabled("csv_import"))) {
+    return {
+      ok: false,
+      code: "DISABLED",
+      message: "CSV import is paused platform-wide by an administrator.",
+    };
+  }
+
   if (!input.rightsConfirmed) {
     return {
       ok: false,

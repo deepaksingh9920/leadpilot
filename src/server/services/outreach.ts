@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/email/send";
+import { isFeatureEnabled } from "@/lib/features";
 import {
   buildTemplateDraft,
   outreachApprovalHash,
@@ -64,6 +65,7 @@ export type OutreachErrorCode =
   | "LIMIT"
   | "NOT_CONFIGURED"
   | "SUPPRESSED"
+  | "DISABLED"
   | "PROVIDER";
 
 export type OutreachFailure = {
@@ -507,6 +509,15 @@ export async function sendOutreachMessage(input: {
   actorId: string;
   messageId: string;
 }): Promise<{ ok: true; providerMessageId?: string } | OutreachFailure> {
+  if (!(await isFeatureEnabled("outreach_sending"))) {
+    return {
+      ok: false,
+      code: "DISABLED",
+      message:
+        "Outreach sending is paused platform-wide by an administrator. Drafting and approval are still available.",
+    };
+  }
+
   const message = await loadMessage(input.workspaceId, input.messageId);
   if (!message) return { ok: false, code: "NOT_FOUND", message: "Message not found." };
   if (message.status !== "APPROVED") {

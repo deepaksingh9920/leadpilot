@@ -1,6 +1,6 @@
 # LeadPilot — Compliance and Data Policy
 
-Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
+Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
 
 This document defines product rules. It is not legal advice; before launch, have counsel
 review the policy against the jurisdictions you sell into (GDPR/UK GDPR, CAN-SPAM, PECR,
@@ -135,6 +135,18 @@ Implemented in Phase 4B and enforced server-side:
 - Razorpay is a subprocessor for billing. Its terms, data location, and retention must be
   added to the subprocessor list before launch.
 
+### Platform switches and audit access
+
+- Superadmins can pause public signups, CSV import, or outreach sending platform-wide. These
+  are availability controls, not deletion: pausing sending leaves approved drafts intact and
+  releases no allowance; pausing import does not touch existing leads or exports.
+- Manual plan assignment is support-only and refused while a live Razorpay subscription is
+  attached, so entitlement cannot silently diverge from what the customer is billed.
+- Audit entries record the actor, action, entity, previous/next values for plan and switch
+  changes, and request metadata. Superadmin audit search is read-only and scoped to
+  platform administration; customer workspace content is not exposed beyond the fields
+  needed to identify the event.
+
 ## 7. Customer-facing controls
 
 - Suppression list: add/remove manually, import CSV, view reason/source/date
@@ -164,6 +176,8 @@ by a superadmin and recorded.
 - [x] Field verification and manual outcome analytics tested (Phase 4B continuation).
 - [x] Razorpay billing adapter, signature verification, replay idempotency, and cancellation
       tested with injected provider stubs (Phase 5A).
+- [x] Admin workspace plan assignment, platform feature switches, and audit search tested;
+      assignment refuses live provider-managed subscriptions (Phase 5B slice 1).
 - [ ] Live Razorpay checkout, webhook delivery, and cancellation verified with real test
       credentials and provider plan IDs.
 - [ ] Payment/webhook subprocessor entry and billing terms reviewed for launch.

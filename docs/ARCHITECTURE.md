@@ -1,6 +1,6 @@
 # LeadPilot — Architecture
 
-Status: Phase 5A Razorpay billing implemented · Last updated: 2026-11-08
+Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
 
 ## 1. Purpose and scope
 
@@ -213,6 +213,29 @@ A cancellation requested for cycle end keeps the paid plan active until the peri
 Provider plan IDs are the fallback mapping when event notes are absent.
 
 Details and the required environment variables are in `docs/INTEGRATIONS.md`.
+
+### Platform administration and feature switches
+
+The `/admin` console is superadmin-only. It lists workspaces with owner, plan, member and
+lead counts, supports keyword search and pagination, and allows a manual plan assignment per
+workspace. Manual assignment clears provider IDs and interval fields and sets
+`provider: "internal"`. It is refused with `CONFLICT` while the workspace has a live
+Razorpay subscription (`ACTIVE`, `TRIALING`, `PENDING`, `PAST_DUE`, or `PAUSED` with a
+provider subscription ID), because a later webhook would overwrite the local change and the
+customer would be billed for a plan the app no longer shows.
+
+Platform feature switches live in `Setting` under `feature.<key>`
+(`src/lib/features.ts`). `signups`, `csv_import`, and `outreach_sending` default to enabled
+when no row exists. Services read the flag before the side effect, so:
+- `signUp` returns a configuration error and creates no account;
+- `importLeadsCsv` returns `DISABLED` and leaves existing leads untouched;
+- `sendOutreachMessage` returns `DISABLED` before any provider call, leaving the message
+  `APPROVED` and reserving no daily allowance. Drafting and approval remain available.
+
+Every plan change, workspace assignment, and switch change writes an audit entry with
+previous and next values. The audit view searches action, entity ID, metadata, actor, and
+workspace name, filters by workspace, action prefix, and date range, and paginates newest
+first. Audit reads are not themselves audited in this slice.
 
 ## 8. Data provenance and verification
 

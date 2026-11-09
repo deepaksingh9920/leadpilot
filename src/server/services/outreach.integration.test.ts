@@ -362,6 +362,34 @@ describe("approval", () => {
 });
 
 describe("sending", () => {
+  it("refuses to send while the platform switch is off", async () => {
+    const fixture = await approvedFixture();
+    await db.setting.upsert({
+      where: { key: "feature.outreach_sending" },
+      update: { value: "false" },
+      create: { key: "feature.outreach_sending", value: "false" },
+    });
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const result = await sendOutreachMessage({
+        workspaceId: tenant.workspace.id,
+        actorId: tenant.user.id,
+        messageId: fixture.messageId,
+      });
+      expect(result).toMatchObject({ ok: false, code: "DISABLED" });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const message = await messageRow(fixture.messageId);
+      expect(message.status).toBe("APPROVED");
+      expect(await sendUsage(tenant.workspace.id)).toBe(0);
+    } finally {
+      await db.setting.deleteMany({ where: { key: "feature.outreach_sending" } });
+    }
+  });
+
   it("will not send content that changed after approval", async () => {
     const fixture = await approvedFixture();
     const message = await messageRow(fixture.messageId);
