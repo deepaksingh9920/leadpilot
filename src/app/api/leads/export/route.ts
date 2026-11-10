@@ -1,5 +1,7 @@
 import { serializeCsv } from "@/lib/csv";
 import { canExportLeads, getAuthContext } from "@/lib/auth/workspace";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS } from "@/lib/auth/rate-limits";
 import { writeAuditLog } from "@/lib/auth/audit";
 import { getLeadsForExport } from "@/server/services/leads";
 import { getWorkspaceLimits, releaseUsage, reserveUsage } from "@/server/services/workspaces";
@@ -42,6 +44,20 @@ export async function GET() {
     return Response.json(
       { error: "You do not have permission to export leads." },
       { status: 403 },
+    );
+  }
+
+  const limit = await checkRateLimit(
+    `lead-export:${context.user.id}`,
+    RATE_LIMITS.leadExport.limit,
+    RATE_LIMITS.leadExport.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return Response.json(
+      {
+        error: `Too many exports. Try again in about ${Math.ceil(limit.retryAfterSeconds / 60)} minutes.`,
+      },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }
 

@@ -8,6 +8,8 @@ import {
   getAuthContext,
   roleAtLeast,
 } from "@/lib/auth/workspace";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { formString, type FormState } from "@/lib/form";
 import {
   approveOutreachMessage,
@@ -35,6 +37,15 @@ export async function createOutreachDraftAction(
   }
   if (!roleAtLeast(context.role, "MEMBER")) {
     return { status: "error", message: "You do not have permission to draft outreach." };
+  }
+
+  const limit = await checkRateLimit(
+    `outreach-draft:${context.user.id}`,
+    RATE_LIMITS.outreachDraft.limit,
+    RATE_LIMITS.outreachDraft.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const campaignId = formString(formData, "campaignId");
@@ -156,6 +167,15 @@ export async function sendOutreachMessageAction(
   }
   if (!canApproveOutreach(context.role)) {
     return { status: "error", message: "Only workspace admins can send outreach." };
+  }
+
+  const limit = await checkRateLimit(
+    `outreach-send:${context.workspace.id}:${context.user.id}`,
+    RATE_LIMITS.outreachSend.limit,
+    RATE_LIMITS.outreachSend.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const messageId = formString(formData, "messageId");

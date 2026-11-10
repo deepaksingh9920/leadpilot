@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
+Status: Phase 5B enforcement, admin, and security hardening work in progress · Last updated: 2026-11-10
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use

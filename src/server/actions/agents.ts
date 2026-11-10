@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { db } from "@/lib/db";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { getAuthContext, roleAtLeast } from "@/lib/auth/workspace";
 import { formString, type FormState } from "@/lib/form";
 import { parseAgentInputSchema, validateAgentInput } from "@/lib/agents/input-schema";
@@ -69,6 +71,15 @@ export async function runAgentAction(
   }
   if (!roleAtLeast(context.role, "MEMBER")) {
     return { status: "error", message: "You do not have permission to run agents." };
+  }
+
+  const limit = await checkRateLimit(
+    `agent-run:${context.user.id}`,
+    RATE_LIMITS.agentRun.limit,
+    RATE_LIMITS.agentRun.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const agentKey = formString(formData, "agentKey");

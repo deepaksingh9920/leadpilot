@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { getAuthContext, roleAtLeast } from "@/lib/auth/workspace";
 import { formString, type FormState } from "@/lib/form";
 import {
@@ -60,14 +61,11 @@ export async function importSuppressionsAction(
 
   const limit = await checkRateLimit(
     `suppression-import:${context.workspace.id}:${context.user.id}`,
-    5,
-    60,
+    RATE_LIMITS.suppressionImport.limit,
+    RATE_LIMITS.suppressionImport.windowSeconds,
   );
   if (!limit.allowed) {
-    return {
-      status: "error",
-      message: `Too many imports. Try again in ${limit.retryAfterSeconds} seconds.`,
-    };
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const file = formData.get("file");

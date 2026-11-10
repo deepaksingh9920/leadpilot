@@ -4,28 +4,30 @@ Evidence-first AI prospecting. Specialist agents find real businesses, research 
 score fit, and draft outreach — while every field stays tied to a permitted source and
 every send waits for a human decision.
 
-> **Status: Phase 5B enforcement and admin work in progress.** Workspace, authentication,
-> onboarding, plan limits, admin configuration, lead management (CSV import, dedupe,
-> provenance, export), campaigns, the queue/worker job system, grounded agent execution,
-> approval-gated outreach, field-level verification, campaign outcome analytics, and
-> Razorpay subscription billing are implemented and verified. The admin console now also
-> assigns plans to individual workspaces (refusing live provider-managed subscriptions),
-> searches the platform audit log with filters and pagination, and controls platform-wide
-> feature switches for signups, CSV import, and outreach sending. Workspace admins and
-> owners can invite teammates by email; pending invitations reserve a seat, only the owner
-> can invite another admin, and a new teammate can create an account from the invite link
-> with a verified email. Lead discovery can use
-> Apollo, People Data Labs, or Google Places; research/qualification use an OpenAI-compatible
-> model; outreach drafts are grounded in stored facts with template fallbacks. Every send
-> requires an admin approval bound to a content hash, re-checks the suppression list, and
-> carries a signed one-click unsubscribe link plus the workspace mailing address. Field
-> checks are human attestations by an admin with optional evidence, and overall lead
-> verification is derived from populated fields rather than provider claims. Campaign
-> outcomes (replied, meeting, hard bounce) are logged manually; opens stay explicitly
-> untracked because no email webhook is connected. Billing checkout runs on Razorpay's
-> hosted payment page, and a paid plan activates only from a signature-verified, idempotent
-> webhook. Remaining Phase 5 workspace-count enforcement, retention/DSAR controls, security
-> hardening, and follow-up agents are still later. LeadPilot never fabricates leads, contact
+> **Status: Phase 5B enforcement, admin, and security hardening in progress.** Workspace,
+> authentication, onboarding, plan limits, admin configuration, lead management (CSV
+> import, dedupe, provenance, export), campaigns, the queue/worker job system, grounded
+> agent execution, approval-gated outreach, field-level verification, campaign outcome
+> analytics, and Razorpay subscription billing are implemented and verified. The admin
+> console also assigns plans to individual workspaces (refusing live provider-managed
+> subscriptions), searches the platform audit log with filters and pagination, and controls
+> platform-wide feature switches for signups, CSV import, and outreach sending. Workspace
+> admins and owners can invite teammates by email; pending invitations reserve a seat, only
+> the owner can invite another admin, and a new teammate can create an account from the
+> invite link with a verified email. Lead discovery can use Apollo, People Data Labs, or
+> Google Places; research/qualification use an OpenAI-compatible model; outreach drafts are
+> grounded in stored facts with template fallbacks. Every send requires an admin approval
+> bound to a content hash, re-checks the suppression list, and carries a signed one-click
+> unsubscribe link plus the workspace mailing address. Field checks are human attestations
+> by an admin with optional evidence, and overall lead verification is derived from
+> populated fields rather than provider claims. Campaign outcomes (replied, meeting, hard
+> bounce) are logged manually; opens stay explicitly untracked because no email webhook is
+> connected. Billing checkout runs on Razorpay's hosted payment page, and a paid plan
+> activates only from a signature-verified, idempotent webhook. Security hardening now
+> centralizes every rate-limit policy, applies a reviewed CSP/headers set on every route,
+> authenticates the worker in constant time, and documents the threat model and residual
+> risks in `docs/SECURITY.md`. Remaining Phase 5 work is workspace-count enforcement,
+> retention/DSAR controls, and follow-up agents. LeadPilot never fabricates leads, contact
 > details, company facts, sources, opens, or replies.
 
 ## Stack
@@ -226,9 +228,17 @@ signs in and accepts there instead. The invitee is added only when the signed-in
 matches the invitation, and every invite, revocation, and acceptance writes an audit entry.
 
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
-logs for sensitive actions, security headers, and server-side limit checks. Outreach cannot
-be sent without an admin approval, and suppressed addresses are blocked at draft time and
-again immediately before delivery.
+logs for sensitive actions, server-side rate limits, and a reviewed header set on every
+route. The CSP locks resources to this origin, blocks framing and plugins, and restricts
+form posts; HSTS and `upgrade-insecure-requests` apply in production only. Passwords are
+bcrypt cost 12, session/reset/invite/unsubscribe tokens are stored only as SHA-256 hashes,
+and the worker secret is compared in constant time. Every sensitive action and API route
+takes its limit from one policy matrix: signup, login, password reset/change, profile
+updates, onboarding, CSV and suppression imports, lead export, agent runs, outreach
+drafts/sends, team invites/acceptance, and billing checkout. Outreach cannot be sent without
+an admin approval, and suppressed addresses are blocked at draft time and again immediately
+before delivery. The threat model, CSP residual risk, rate-limit matrix, secret rotation
+notes, dependency-audit result, and production checklist are in `docs/SECURITY.md`.
 
 ## Not implemented yet
 
@@ -240,7 +250,12 @@ again immediately before delivery.
   flow exists yet, so the limit is shown but cannot be exercised.
 - Retention/DSAR controls, per-workspace approval policy, and campaign/outreach compliance
   settings.
-- Postgres deployment and production hardening.
+- Postgres deployment, trusted-proxy configuration, monitoring/alerting, and deployment-time
+  hardening (see the production checklist in `docs/SECURITY.md`).
+- A strict nonce-based CSP. The current policy is nonce-free because static pages cannot
+  receive per-request nonces, so `'unsafe-inline'` remains a documented residual risk.
+- The Prisma 7 upgrade needed to clear the `deepmerge-ts` advisory reported by
+  `npm audit --omit=dev`.
 - Executors for `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP`; those agents stay
   disabled.
 
@@ -271,9 +286,10 @@ src/
     ui/              Buttons, inputs, cards, badges, alerts
   lib/
     agents/          Runtime gating, output schemas, input schemas
-    auth/            Sessions, roles, rate limits, audit
+    auth/            Sessions, roles, rate-limit matrix, audit
     billing/         Razorpay API adapter, signature verification, webhook parsing
     email/           Resend adapter
+    security/        CSP/header builder, constant-time worker authorization
     jobs/            Queue policy, leases, retry backoff
     leads/           Import mapping and dedupe
     outreach/        Grounded templates, approval hash, signed tokens
@@ -289,7 +305,7 @@ src/
 prisma/
   schema.prisma      Full data model
   seed.ts            Plans, agents, bootstrap admin
-docs/                Architecture, roadmap, compliance, integrations
+docs/                Architecture, security, roadmap, compliance, integrations
 ```
 
 ## Testing
@@ -300,7 +316,8 @@ npm run test
 
 Unit tests cover CSV parsing, import mapping and dedupe rules, agent input/output schemas,
 runtime gating, job policy, validation, role hierarchy, rate-limit behavior, formatting
-helpers, grounded outreach templates and approval hashes, unsubscribe token signing, and
+helpers, grounded outreach templates and approval hashes, unsubscribe token signing,
+security headers/CSP values, constant-time worker authorization, the rate-limit matrix, and
 provider request shaping/normalization/error mapping for Apollo, PDL, Google Places, the AI
 adapter, and the Razorpay billing adapter (auth headers, checkout/cancel payloads, webhook
 parsing, and HMAC signature verification). Database integration tests create a throwaway
@@ -312,7 +329,7 @@ the Resend payload, public unsubscribe, Razorpay checkout, webhook activation an
 idempotency, plan mapping, tenant isolation, downgrade to Free, refusal to transact without
 credentials, workspace plan assignment, provider-managed conflicts, feature switches that
 block signup, import, or sending, and invite permissions, seat reservation, revocation,
-expiry, wrong-email refusal, and new-account registration. The suite is **31 files / 256
+expiry, wrong-email refusal, and new-account registration. The suite is **34 files / 269
 tests**. Before shipping any change, also run `npm run lint`, `npm run typecheck`, and
 `npm run build`.
 

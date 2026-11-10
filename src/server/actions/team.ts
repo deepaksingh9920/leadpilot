@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { createSession, getSession } from "@/lib/auth/session";
 import { getAuthContext, roleAtLeast, setActiveWorkspace } from "@/lib/auth/workspace";
 import { formString, toFieldErrors, type FormState } from "@/lib/form";
@@ -18,11 +19,6 @@ import {
   registerAndAcceptInvite,
   revokeInvite,
 } from "@/server/services/team";
-
-function rateLimitMessage(retryAfterSeconds: number): string {
-  const minutes = Math.ceil(retryAfterSeconds / 60);
-  return `Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
-}
 
 export async function inviteMemberAction(
   _previous: FormState,
@@ -51,7 +47,11 @@ export async function inviteMemberAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`team-invite:${context.workspace.id}`, 20, 60 * 60);
+  const limit = await checkRateLimit(
+    `team-invite:${context.workspace.id}`,
+    RATE_LIMITS.teamInvite.limit,
+    RATE_LIMITS.teamInvite.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
@@ -131,7 +131,11 @@ export async function acceptInviteAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`invite-accept:${ip}`, 10, 60 * 60);
+  const limit = await checkRateLimit(
+    `invite-accept:${ip}`,
+    RATE_LIMITS.inviteAccept.limit,
+    RATE_LIMITS.inviteAccept.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
@@ -165,7 +169,11 @@ export async function acceptInviteRegistrationAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`invite-register:${ip}`, 5, 60 * 60);
+  const limit = await checkRateLimit(
+    `invite-register:${ip}`,
+    RATE_LIMITS.inviteRegister.limit,
+    RATE_LIMITS.inviteRegister.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }

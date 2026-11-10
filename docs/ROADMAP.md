@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement · Last updated: 2026-11-09
+Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, and security hardening · Last updated: 2026-11-10
 
 ## Working rules
 
@@ -442,13 +442,58 @@ Verified:
 - `npm test` (31 files / 256 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
   pass.
 
+#### Slice 3 — Security hardening (complete, 2026-11-10)
+
+Build (done):
+1. `src/lib/security/headers.ts`: one pure builder for the headers applied to every route
+   by `next.config.ts`. The CSP locks scripts, styles, images, fonts, connections, workers,
+   and manifests to this origin; plugins, framing, base-tag hijacking, and cross-origin form
+   posts are blocked. HSTS and `upgrade-insecure-requests` are production-only, and
+   `'unsafe-eval'`/dev websockets are development-only. `X-Powered-By` is removed.
+2. `src/lib/auth/rate-limits.ts`: a centralized policy matrix used by every sensitive
+   server action and API route. New coverage includes password change, profile update,
+   agent runs, outreach drafts and sends, billing checkout, and lead export. The shared
+   message helper reports the real retry window.
+3. `src/lib/security/worker-auth.ts`: constant-time `Bearer`/`x-worker-secret` comparison
+   that fails closed when `WORKER_SECRET` is unset. The worker route now uses it.
+4. `docs/SECURITY.md`: threat model, authentication/session and tenant-isolation notes,
+   CSRF posture, the full rate-limit matrix, CSP rationale and residual risk, worker and
+   webhook authentication, secret rotation, audit limitations, dependency-audit result, and
+   a production checklist.
+5. Dependency audit recorded rather than hidden: `npm audit --omit=dev` reports three high
+   advisories from `deepmerge-ts@7.1.5` through Prisma's CLI/config packages. The fix is a
+   breaking Prisma 7 upgrade and is scheduled, not forced into this slice.
+
+Verified:
+- `headers.test.ts` checks the development and production policies, HSTS gating, and every
+  static header. `worker-auth.test.ts` covers Bearer and header secrets, wrong values,
+  length mismatches, and the unconfigured case. `rate-limits.test.ts` pins the sensitivity
+  bounds of the matrix.
+- `npm test` (34 files / 269 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+- Dev-server `/login` response carried all expected headers; HSTS was correctly absent in
+  development.
+- Browser QA loaded `/dashboard`, `/agents`, `/campaigns`, `/leads`, `/settings`,
+  `/settings/suppression`, and `/integrations` under the CSP with zero console errors;
+  `/admin` redirected the non-superadmin.
+- `/api/leads/export` returned ten `200` responses and then `429` with `Retry-After`,
+  proving the new limit is enforced through the route.
+
+Residual risk:
+- The CSP is nonce-free because static pages cannot receive per-request nonces, so
+  `'unsafe-inline'` remains for framework bootstrap and Tailwind styles. A strict nonce
+  policy requires dynamic rendering; the path is documented in `docs/SECURITY.md`.
+- `X-Forwarded-For` is trusted for rate-limit keys and audit IPs. Production must run behind
+  a trusted proxy that overwrites it.
+- The `deepmerge-ts` advisory stays open until Prisma 7.
+
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an
    extra-workspace creation flow, so the limit can only be displayed.
 2. Compliance controls: retention settings, DSAR/export and account deletion workflow,
    per-workspace approval policy, and campaign/outreach compliance settings.
-3. Security hardening: full rate-limit matrix, CSP/headers, secret rotation notes, audit
-   coverage review, dependency audit, permission tests.
+3. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
+   monitoring/alerting, retention jobs, and the Prisma major upgrade.
 
 Acceptance criteria:
 - Test-mode Razorpay upgrade/downgrade/cancel/webhook replay all update entitlements once.

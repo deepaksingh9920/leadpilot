@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 
 import { changePassword } from "@/server/services/auth";
 import { updateBusinessProfile } from "@/server/services/onboarding";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { getAuthContext, roleAtLeast, setActiveWorkspace } from "@/lib/auth/workspace";
 import { getSession } from "@/lib/auth/session";
 import { formString, toFieldErrors, type FormState } from "@/lib/form";
@@ -22,6 +24,15 @@ export async function updateProfileAction(
   }
   if (!roleAtLeast(context.role, "ADMIN")) {
     return { status: "error", message: "You do not have permission to edit this profile." };
+  }
+
+  const limit = await checkRateLimit(
+    `profile-update:${context.user.id}`,
+    RATE_LIMITS.profileUpdate.limit,
+    RATE_LIMITS.profileUpdate.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const parsed = profileSettingsSchema.safeParse({
@@ -65,6 +76,15 @@ export async function changePasswordAction(
 ): Promise<FormState> {
   const session = await getSession();
   if (!session) return { status: "error", message: "Sign in to continue." };
+
+  const limit = await checkRateLimit(
+    `password-change:${session.user.id}`,
+    RATE_LIMITS.passwordChange.limit,
+    RATE_LIMITS.passwordChange.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
+  }
 
   const parsed = changePasswordSchema.safeParse({
     currentPassword: formString(formData, "currentPassword"),

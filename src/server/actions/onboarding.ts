@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { getSession } from "@/lib/auth/session";
 import { setActiveWorkspace } from "@/lib/auth/workspace";
 import { formString, toFieldErrors, type FormState } from "@/lib/form";
@@ -37,12 +38,13 @@ export async function completeOnboardingAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`onboarding:${session.user.id}:${ip}`, 15, 60 * 60);
+  const limit = await checkRateLimit(
+    `onboarding:${session.user.id}:${ip}`,
+    RATE_LIMITS.onboarding.limit,
+    RATE_LIMITS.onboarding.windowSeconds,
+  );
   if (!limit.allowed) {
-    return {
-      status: "error",
-      message: "Too many attempts. Wait a few minutes before trying again.",
-    };
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const result = await completeOnboarding(session.user.id, parsed.data);

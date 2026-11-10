@@ -1,10 +1,12 @@
 # LeadPilot — Compliance and Data Policy
 
-Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
+Status: Phase 5B enforcement, admin, and security hardening work in progress ·
+Last updated: 2026-11-10
 
 This document defines product rules. It is not legal advice; before launch, have counsel
 review the policy against the jurisdictions you sell into (GDPR/UK GDPR, CAN-SPAM, PECR,
-CCPA/CPRA, and local marketing laws).
+CCPA/CPRA, and local marketing laws). Engineering controls and residual risks are detailed
+in `docs/SECURITY.md`.
 
 ## 1. Non-negotiable product rules
 
@@ -115,6 +117,18 @@ Implemented in Phase 4B and enforced server-side:
   changes, integration changes, and superadmin access.
 - Export requires an explicit action, is logged, and is rate-limited; exports include
   provenance so recipients can audit.
+- Every sensitive action takes its limit from one reviewed policy matrix (signup, login,
+  reset/change password, profile updates, onboarding, imports, exports, agent runs, outreach
+  drafts/sends, invitations, billing checkout). The limiter fails closed on database errors,
+  and browser-facing responses report the real retry window.
+- Security headers apply to every route: origin-locked CSP, frame denial, `nosniff`,
+  referrer and permissions policies, cross-origin isolation, and production-only HSTS.
+  `docs/SECURITY.md` records the CSP's nonce-free trade-off and remaining risk.
+- Worker calls require a constant-time secret check and stay disabled when the secret is
+  unset. Razorpay events are HMAC-verified over the raw body and applied once.
+- Passwords, sessions, reset/verification tokens, invitations, and unsubscribe tokens are
+  stored only as hashes where the plaintext is not needed. No payment-instrument data is
+  stored.
 - Incident response: contain, assess, notify the workspace owner, and meet breach
   notification timelines where applicable.
 
@@ -200,7 +214,12 @@ by a superadmin and recorded.
 - [ ] Payment/webhook subprocessor entry and billing terms reviewed for launch.
 - [ ] Email authentication configured (SPF, DKIM, DMARC) on the sending domain.
 - [ ] Retention and deletion jobs implemented and tested.
-- [ ] Audit log coverage verified for all privileged actions.
+- [ ] Audit log coverage verified for all privileged actions, including external tamper
+      evidence for regulated customers.
 - [ ] Data processing register and subprocessor list maintained.
-- [ ] Security headers and rate limits verified in production.
+- [x] Rate-limit matrix, security headers, worker authentication, and CSP documented and
+      tested, with the CSP residual risk recorded (Phase 5B slice 3).
+- [ ] Security headers, HSTS, and rate limits verified against the production deployment
+      behind a trusted proxy.
+- [ ] Prisma 7 upgrade completed to clear the `deepmerge-ts` advisory.
 - [ ] Support and abuse-report contact published.

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { getAuthContext, roleAtLeast } from "@/lib/auth/workspace";
 import { formString, type FormState } from "@/lib/form";
 import { LEAD_IMPORT_FIELDS, mappingIsUsable, type LeadImportMapping } from "@/lib/leads/import";
@@ -33,12 +34,13 @@ export async function importLeadsAction(
     return { status: "error", message: "You do not have permission to import leads." };
   }
 
-  const limit = await checkRateLimit(`import:${context.user.id}`, 10, 60 * 60);
+  const limit = await checkRateLimit(
+    `import:${context.user.id}`,
+    RATE_LIMITS.csvImport.limit,
+    RATE_LIMITS.csvImport.windowSeconds,
+  );
   if (!limit.allowed) {
-    return {
-      status: "error",
-      message: "Too many imports in the last hour. Try again later.",
-    };
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const file = formData.get("file");

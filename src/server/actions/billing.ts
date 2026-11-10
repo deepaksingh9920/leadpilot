@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { canManageBilling, getAuthContext } from "@/lib/auth/workspace";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { formString, type FormState } from "@/lib/form";
 import {
   cancelWorkspaceSubscription,
@@ -20,6 +22,15 @@ export async function startCheckoutAction(
   }
   if (!canManageBilling(context.role)) {
     return { status: "error", message: "Only the workspace owner can change billing." };
+  }
+
+  const limit = await checkRateLimit(
+    `billing-checkout:${context.workspace.id}:${context.user.id}`,
+    RATE_LIMITS.billingCheckout.limit,
+    RATE_LIMITS.billingCheckout.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
 
   const planId = formString(formData, "planId");

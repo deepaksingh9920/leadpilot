@@ -1,22 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
-
 import { env } from "@/lib/env";
+import { isWorkerAuthorized } from "@/lib/security/worker-auth";
 import { runWorker } from "@/server/services/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function authorized(request: Request): boolean {
-  if (!env.workerSecret) return false;
-  const header =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    request.headers.get("x-worker-secret") ??
-    "";
-  const expected = Buffer.from(env.workerSecret);
-  const provided = Buffer.from(header);
-  if (expected.length !== provided.length) return false;
-  return timingSafeEqual(expected, provided);
-}
 
 export async function POST(request: Request) {
   if (!env.workerSecret) {
@@ -29,7 +16,12 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!authorized(request)) {
+  if (
+    !isWorkerAuthorized(env.workerSecret, {
+      authorization: request.headers.get("authorization"),
+      workerSecret: request.headers.get("x-worker-secret"),
+    })
+  ) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

@@ -1,6 +1,6 @@
 # LeadPilot — Architecture
 
-Status: Phase 5B enforcement and admin work in progress · Last updated: 2026-11-09
+Status: Phase 5B enforcement, admin, and security hardening work in progress · Last updated: 2026-11-10
 
 ## 1. Purpose and scope
 
@@ -289,23 +289,43 @@ contact data.
 
 ## 9. Security controls
 
-- Passwords: bcrypt (cost 12), minimum length 10, breached-password check optional.
-- Sessions: random 256-bit token, only a hash stored, httpOnly + Secure + SameSite=Lax
-  cookie, 30-day expiry with sliding refresh, revoked on password change.
-- CSRF: SameSite cookies plus explicit Origin/Host checks on mutations.
-- Input validation: Zod on every action, route handler, and CSV row; size caps on uploads.
-- Rate limits (DB token buckets, per IP + account): login 5/15 min, signup 3/h,
-  password reset 3/h, agent runs plan-capped + 10/min, exports 5/h, outreach sends
-  plan-capped per day.
-- Authorization: role + workspace checks in the service layer; no direct Prisma calls
-  from components.
-- Secrets: `.env.local` only, `.gitignore`d; `.env.example` contains placeholders.
-- Headers: CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, frame denial.
+Detailed rationale and verification live in `docs/SECURITY.md`.
+
+- Passwords: bcrypt cost 12. Password length/confirmation is validated before hashing.
+- Sessions: random 256-bit token, only `sha256(token)` stored, httpOnly + Secure (production)
+  + SameSite=Lax cookie, 30-day absolute expiry (no sliding refresh). Password change
+  revokes other sessions; disabled users are rejected even with a valid token.
+- Tokens: email verification, reset, invitations, and unsubscribe links are random,
+  single-use where applicable, and stored only as hashes. Invitations expire after 7 days.
+- CSRF: SameSite=Lax cookies, Next.js Server Action Origin checks, and secret/signature
+  authentication on the only mutating route handlers (worker and webhook).
+- Input validation: Zod on every action, route handler, and CSV row; upload size caps.
+- Rate limits: one reviewed matrix in `src/lib/auth/rate-limits.ts` backs a DB fixed-window
+  limiter that fails closed. It covers signup, login, reset/change password, profile updates,
+  onboarding, CSV/suppression imports, exports, agent runs, outreach drafts/sends, invites,
+  and billing checkout. Plan entitlements are enforced separately and atomically.
+- Authorization: role + workspace checks in the service layer; no direct Prisma calls from
+  components. Billing and admin invites are owner-only; platform admin is superadmin-only.
+- Secrets: `.env.local` only, `.gitignore`d; `.env.example` contains placeholders. Server
+  modules read secrets through `src/lib/env.ts`; nothing security-sensitive is exposed via
+  `NEXT_PUBLIC_*`.
+- Headers: `next.config.ts` applies the output of `src/lib/security/headers.ts` to every
+  route — origin-locked CSP, production-only HSTS, `nosniff`, frame denial, referrer and
+  permissions policies, COOP/CORP, DNS-prefetch off. The CSP is intentionally nonce-free
+  because static pages cannot receive nonces; `'unsafe-inline'` remains a documented
+  residual risk with a strict-CSP path in `docs/SECURITY.md`.
+- Worker: `POST /api/worker/run` requires a constant-time `Bearer`/`x-worker-secret` match
+  and stays disabled (`503`) when `WORKER_SECRET` is unset.
+- Webhooks: Razorpay HMAC-SHA256 verification over the raw body and idempotent processing via
+  `WebhookEvent`; checkout refuses to start without a working activation path.
 - Logging: emails/phones redacted; request IDs; no bodies of auth or billing requests.
-- Audit log: append-only entries for login, role changes, exports, lead deletion, agent
-  runs, approvals, sends, integration changes, and plan changes.
-- Webhooks: signature verification and idempotent processing via `WebhookEvent`.
-- Dependency hygiene: lockfile committed, `npm audit` in CI once Git/CI is set up.
+- Audit log: append-only application entries for login, role changes, exports, lead deletion,
+  field verification, agent runs, approvals, sends, outcomes, invitations, switches, and plan
+  changes. Audit-write failures are logged but do not block the action, and there is no
+  external tamper evidence yet.
+- Dependency hygiene: lockfile committed. `npm audit --omit=dev` reports three high
+  advisories from `deepmerge-ts` through Prisma 6 CLI/config; the fix requires a breaking
+  Prisma 7 upgrade and is tracked as a residual risk rather than silently suppressed.
 
 ## 10. Folder structure
 
@@ -313,6 +333,7 @@ contact data.
 leadpilot/
 ├─ docs/
 │  ├─ ARCHITECTURE.md
+│  ├─ SECURITY.md
 │  ├─ ROADMAP.md
 │  ├─ COMPLIANCE.md
 │  └─ INTEGRATIONS.md
@@ -358,7 +379,7 @@ leadpilot/
 │  │  ├─ outreach/           # approval, suppression, sending
 │  │  ├─ billing/            # plans, limits, Razorpay adapter + webhook parsing
 │  │  ├─ jobs/               # queue, leases, pipeline stages
-│  │  ├─ security/           # rate limit, csrf, redaction, crypto
+│  │  ├─ security/           # CSP/header builder, worker auth, hashing helpers
 │  │  ├─ validation/         # zod schemas
 │  │  └─ utils/
 │  ├─ server/

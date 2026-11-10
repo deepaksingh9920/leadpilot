@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import { RATE_LIMITS, rateLimitMessage } from "@/lib/auth/rate-limits";
 import { createSession, destroyCurrentSession, getSession } from "@/lib/auth/session";
 import { env } from "@/lib/env";
 import { formString, toFieldErrors, type FormState } from "@/lib/form";
@@ -23,11 +24,6 @@ import {
   verifyEmail,
 } from "@/server/services/auth";
 
-function rateLimitMessage(retryAfterSeconds: number): string {
-  const minutes = Math.ceil(retryAfterSeconds / 60);
-  return `Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
-}
-
 export async function signupAction(
   _previous: FormState,
   formData: FormData,
@@ -45,7 +41,11 @@ export async function signupAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`signup:${ip}`, 3, 60 * 60);
+  const limit = await checkRateLimit(
+    `signup:${ip}`,
+    RATE_LIMITS.signup.limit,
+    RATE_LIMITS.signup.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
@@ -86,8 +86,8 @@ export async function loginAction(
   const ip = await getClientIp();
   const limit = await checkRateLimit(
     `login:${ip}:${parsed.data.email.toLowerCase()}`,
-    5,
-    15 * 60,
+    RATE_LIMITS.login.limit,
+    RATE_LIMITS.login.windowSeconds,
   );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
@@ -124,7 +124,11 @@ export async function forgotPasswordAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`forgot:${ip}`, 5, 60 * 60);
+  const limit = await checkRateLimit(
+    `forgot:${ip}`,
+    RATE_LIMITS.forgotPassword.limit,
+    RATE_LIMITS.forgotPassword.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
@@ -161,7 +165,11 @@ export async function resetPasswordAction(
   }
 
   const ip = await getClientIp();
-  const limit = await checkRateLimit(`reset:${ip}`, 5, 60 * 60);
+  const limit = await checkRateLimit(
+    `reset:${ip}`,
+    RATE_LIMITS.resetPassword.limit,
+    RATE_LIMITS.resetPassword.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
@@ -208,7 +216,11 @@ export async function resendVerificationAction(): Promise<FormState> {
     };
   }
 
-  const limit = await checkRateLimit(`verify-email:${session.user.id}`, 3, 60 * 60);
+  const limit = await checkRateLimit(
+    `verify-email:${session.user.id}`,
+    RATE_LIMITS.resendVerification.limit,
+    RATE_LIMITS.resendVerification.windowSeconds,
+  );
   if (!limit.allowed) {
     return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
   }
