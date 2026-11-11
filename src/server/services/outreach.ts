@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
+import { canApproveOutreach } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/email/send";
@@ -66,6 +67,7 @@ export type OutreachErrorCode =
   | "NOT_CONFIGURED"
   | "SUPPRESSED"
   | "DISABLED"
+  | "FORBIDDEN"
   | "PROVIDER";
 
 export type OutreachFailure = {
@@ -102,7 +104,9 @@ const MESSAGE_RELATIONS = {
     },
   },
   campaign: { select: { id: true, name: true, status: true, dailySendCap: true } },
-  workspace: { select: { id: true, name: true, profile: true } },
+  workspace: {
+    select: { id: true, name: true, profile: true, approvalPolicy: true },
+  },
   createdBy: { select: { name: true } },
   approvedBy: { select: { name: true } },
 } satisfies Prisma.OutreachMessageInclude;
@@ -117,6 +121,34 @@ async function loadMessage(
     where: { id: messageId, workspaceId },
     include: MESSAGE_RELATIONS,
   });
+}
+
+/**
+ * Re-checks the actor's role at approval and send time. The workspace policy is
+ * read from the workspace row so a caller cannot bypass an owner-only policy by
+ * holding a stale role in the UI or invoking the service directly.
+ */
+async function checkApprovalPolicy(input: {
+  workspaceId: string;
+  actorId: string;
+  policy: string;
+}): Promise<OutreachFailure | null> {
+  const membership = await db.membership.findUnique({
+    where: {
+      workspaceId_userId: { workspaceId: input.workspaceId, userId: input.actorId },
+    },
+    select: { role: true },
+  });
+  if (canApproveOutreach(membership?.role, input.policy)) return null;
+
+  return {
+    ok: false,
+    code: "FORBIDDEN",
+    message:
+      input.policy === "OWNER_ONLY"
+        ? "Only the workspace owner can approve or send outreach under the current policy."
+        : "Only workspace admins and owners can approve or send outreach.",
+  };
 }
 
 /**
@@ -365,6 +397,13 @@ export async function approveOutreachMessage(input: {
     return { ok: false, code: "INVALID", message: "This lead has been deleted." };
   }
 
+  const denied = await checkApprovalPolicy({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    policy: message.workspace.approvalPolicy,
+  });
+  if (denied) return denied;
+
   const invalid = contentIsValid(message.subject, message.body);
   if (invalid) return invalid;
 
@@ -520,6 +559,13 @@ export async function sendOutreachMessage(input: {
 
   const message = await loadMessage(input.workspaceId, input.messageId);
   if (!message) return { ok: false, code: "NOT_FOUND", message: "Message not found." };
+  const denied = await checkApprovalPolicy({
+    workspaceId: input.workspaceId,
+    actorId: input.actorId,
+    policy: message.workspace.approvalPolicy,
+  });
+  if (denied) return denied;
+
   if (message.status !== "APPROVED") {
     return {
       ok: false,

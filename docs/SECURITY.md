@@ -113,6 +113,10 @@ errors. Keys are stable because the limiter stores them.
 | `inviteAccept` | 10 | 1 h | IP | Token guessing |
 | `inviteRegister` | 5 | 1 h | IP | Invite-based account spam |
 | `billingCheckout` | 10 | 1 h | Workspace + user | Duplicate subscription creation |
+| `complianceUpdate` | 20 | 1 h | Workspace + user | Approval-policy/retention churn |
+| `dataExport` | 3 | 1 h | User | Full-workspace DSAR exfiltration |
+| `retentionCleanup` | 5 | 1 h | Workspace + user | Destructive-job abuse |
+| `workspaceDeletion` | 3 | 1 h | Workspace + user | Password-guessing against deletion |
 
 Plan entitlements (seats, monthly leads, daily sends, exports, agent runs) are enforced
 separately and atomically in the service layer. Rate limits do not replace plan limits.
@@ -229,8 +233,22 @@ log store) is not implemented and should be considered for regulated customers.
   unsubscribe link; unsubscribe works without login and is idempotent.
 - Exports include provenance and verification columns and are audit-logged and rate-limited.
 - Sensitive personal data is out of scope by policy (`docs/COMPLIANCE.md`).
-- Backups, retention jobs, and deletion/DSAR workflows are not implemented yet; see
-  `docs/ROADMAP.md`.
+- Retention is workspace-configurable. Leads past the window are soft-deleted, then
+  permanently purged after a 30-day grace; soft-deleted workspaces are purged on the same
+  schedule. The cleanup runs after each worker batch (and can be triggered manually by an
+  admin). Suppression entries and audit records are not purged with a lead.
+- DSAR export is an admin-only JSON bundle. It is rate-limited to three per hour, carries
+  `Cache-Control: no-store` and an attachment filename, excludes soft-deleted leads, and
+  writes a `workspace.data_exported` audit entry.
+- Workspace deletion requires the exact workspace name and the owner's current password. It
+  is refused while a Razorpay subscription is live, soft-deletes the workspace immediately,
+  revokes pending invites, ends the session, and leaves purge to the retention worker after
+  30 days. Account-level deletion and ownership transfer are not implemented.
+- Outreach approval policy is enforced twice: the UI/actions gate on the workspace policy,
+  and the approval/send services re-read the actor's membership and the policy. A direct
+  service call by an admin under `OWNER_ONLY` returns `FORBIDDEN`.
+- Backups must inherit the same retention window; backup automation is a deployment task and
+  is not part of this repository.
 
 ## 13. Dependency and supply-chain posture
 
@@ -251,8 +269,9 @@ log store) is not implemented and should be considered for regulated customers.
 - `npm run typecheck` — clean.
 - `npm run lint` — clean.
 - `npm run build` — clean; all routes compile and prerender as before.
-- `npm test` — **34 files / 269 tests** pass, including new suites for header/CSP values,
-  worker constant-time authorization, and the rate-limit matrix.
+- `npm test` — **36 files / 287 tests** pass, including suites for header/CSP values, worker
+  constant-time authorization, the rate-limit matrix, compliance settings/retention/export/
+  deletion, and owner-only approval enforcement at the service layer.
 - Live dev-server header check on `/login` confirmed CSP, HSTS absence in development,
   `nosniff`, `DENY`, referrer, permissions, COOP/CORP, DNS-prefetch, and cross-domain
   headers.
@@ -261,6 +280,12 @@ log store) is not implemented and should be considered for regulated customers.
   errors; `/admin` redirected the non-superadmin to `/dashboard`.
 - `/api/leads/export` returned ten `200` responses and then `429` with `Retry-After` and the
   honest "too many exports" message, proving the new limit is wired through the route.
+- Compliance QA signed in as a workspace owner: changed retention and approval policy and saw
+  the saved values after revalidation (the form is re-keyed so uncontrolled selects cannot show
+  stale values), downloaded `/api/workspace/export` and confirmed a `formatVersion: 1` JSON
+  bundle with `no-store` and an attachment filename, ran retention cleanup and saw honest zero
+  counts, and submitted a wrong workspace name to the deletion form, which was refused with the
+  workspace intact. No console errors were recorded.
 - Production-mode header values (HSTS and the stricter CSP) are unit-tested but were not
   served by a production build during this pass.
 
@@ -278,7 +303,10 @@ log store) is not implemented and should be considered for regulated customers.
 - [ ] Configure SPF, DKIM, and DMARC on the sending domain before enabling outreach.
 - [ ] Add monitoring/alerting for rate-limit spikes, failed logins, webhook failures, worker
       failures, and audit-write errors.
-- [ ] Add a retention/deletion job and a documented DSAR/export process.
+- [ ] Schedule the worker endpoint so retention/purge runs automatically and monitor its
+      counts and failures. Manual cleanup and the worker trigger are the only paths today.
+- [ ] Document and rehearse the DSAR/export and workspace-deletion runbook, including backup
+      expiry, before taking regulated customers.
 - [ ] Schedule the Prisma 7 upgrade to clear the `deepmerge-ts` advisory.
 - [ ] Re-run `npm audit --omit=dev`, `npm test`, `npm run typecheck`, `npm run lint`, and
       `npm run build` as part of the release gate.

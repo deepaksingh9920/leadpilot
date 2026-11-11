@@ -63,6 +63,10 @@ model Workspace {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
+  // Compliance controls. A null retention window keeps active leads indefinitely;
+  // soft-deleted leads are always purged after the 30-day grace period.
+  leadRetentionDays Int?
+  approvalPolicy    String    @default("ADMIN_OR_OWNER")
 
   memberships        Membership[]
   invites            Invite[]
@@ -81,6 +85,7 @@ model Workspace {
   leadImports        LeadImport[]
 
   @@index([ownerId])
+  @@index([deletedAt])
 }
 
 model Membership {

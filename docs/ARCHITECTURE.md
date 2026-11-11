@@ -94,7 +94,8 @@ many owned workspaces and seats are permitted.
 Identity and tenancy
 - `User` — email, passwordHash, name, emailVerifiedAt, isSuperAdmin, disabledAt
 - `Session` — tokenHash, userId, expiresAt, ip, userAgent
-- `Workspace` — name, slug, ownerId, billingCustomerId, deletedAt
+- `Workspace` — name, slug, ownerId, deletedAt, leadRetentionDays (null/30/90/180/365),
+  approvalPolicy (`ADMIN_OR_OWNER` or `OWNER_ONLY`)
 - `Membership` — workspaceId, userId, role (unique pair)
 - `Invite` — workspaceId, email, role, tokenHash, expiresAt, acceptedAt
 
@@ -133,7 +134,12 @@ Uniqueness: `Lead (workspaceId, sourceId, sourceRecordId)` prevents duplicates f
 same provider. Deduplication on import falls back to normalized domain + contact email.
 
 Deletion policy: leads and campaigns are soft-deleted (`deletedAt`) so audit trails and
-suppression history survive. User deletion anonymizes PII while retaining audit records.
+suppression history survive. Leads past a workspace's retention window are soft-deleted by
+the cleanup job, then permanently purged after a 30-day grace; workspaces follow the same
+soft-delete-then-purge schedule. Deletion requests end sessions, revoke pending invites, and
+are refused while a live Razorpay subscription is attached. Suppression entries and audit
+records are deliberately not purged with a lead. User deletion anonymizes PII while
+retaining audit records.
 
 SQLite is used locally for zero-setup development. The schema avoids Postgres-specific
 types (enums and arrays are stored as validated strings/JSON) so moving to Postgres is a
@@ -305,7 +311,15 @@ Detailed rationale and verification live in `docs/SECURITY.md`.
   onboarding, CSV/suppression imports, exports, agent runs, outreach drafts/sends, invites,
   and billing checkout. Plan entitlements are enforced separately and atomically.
 - Authorization: role + workspace checks in the service layer; no direct Prisma calls from
-  components. Billing and admin invites are owner-only; platform admin is superadmin-only.
+  components. Billing, admin invites, and workspace deletion are owner-only; platform admin
+  is superadmin-only. Outreach approval is role-checked in the UI/actions and re-checked in
+  the service layer against the workspace's current approval policy, so a direct service call
+  cannot bypass an owner-only policy.
+- Compliance: retention windows soft-delete stale leads and purge them after a 30-day grace;
+  the worker runs the same cleanup on each tick. DSAR exports are admin-only, rate-limited,
+  audit-logged, and exclude soft-deleted leads. Workspace deletion requires the exact
+  workspace name and current password, is refused while a Razorpay subscription is live, and
+  revokes sessions and pending invites immediately.
 - Secrets: `.env.local` only, `.gitignore`d; `.env.example` contains placeholders. Server
   modules read secrets through `src/lib/env.ts`; nothing security-sensitive is exposed via
   `NEXT_PUBLIC_*`.
@@ -353,15 +367,17 @@ leadpilot/
 │  │  │  ├─ leads/           # table, filters, detail, import, export
 │  │  │  ├─ campaigns/
 │  │  │  ├─ integrations/
-│  │  │  ├─ settings/        # profile, team, billing, suppression
+│  │  │  ├─ settings/        # profile, team, billing, suppression, compliance
 │  │  │  └─ layout.tsx
 │  │  ├─ admin/              # plans, providers, users, audit
 │  │  ├─ api/
 │  │  │  ├─ auth/[...]
 │  │  │  ├─ jobs/tick/       # protected worker trigger
 │  │  │  ├─ leads/export/
+│  │  │  ├─ workspace/export/ # admin-only DSAR JSON bundle
 │  │  │  ├─ outreach/send/
 │  │  │  ├─ billing/razorpay/  # signed subscription webhook
+│  │  │  ├─ worker/run/      # secret-authenticated queue + retention tick
 │  │  │  └─ health/
 │  │  ├─ layout.tsx
 │  │  └─ globals.css
@@ -378,12 +394,13 @@ leadpilot/
 │  │  ├─ sources/            # provider adapters + normalizers
 │  │  ├─ outreach/           # approval, suppression, sending
 │  │  ├─ billing/            # plans, limits, Razorpay adapter + webhook parsing
+│  │  ├─ compliance/         # retention windows, approval policies, purge helpers
 │  │  ├─ jobs/               # queue, leases, pipeline stages
 │  │  ├─ security/           # CSP/header builder, worker auth, hashing helpers
 │  │  ├─ validation/         # zod schemas
 │  │  └─ utils/
 │  ├─ server/
-│  │  ├─ services/           # workspace, lead, campaign, run, billing services
+│  │  ├─ services/           # workspace, lead, campaign, run, billing, compliance services
 │  │  └─ actions/            # "use server" mutations
 │  └─ types/
 ├─ tests/

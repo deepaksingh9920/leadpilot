@@ -16,8 +16,14 @@ export function roleAtLeast(
   return typeof rank === "number" && rank >= ROLE_RANK[minimum];
 }
 
-export const canApproveOutreach = (role: string | null | undefined) =>
-  roleAtLeast(role, "ADMIN");
+/**
+ * Workspace approval policy can tighten outreach to the owner without changing
+ * the role hierarchy. The default keeps admins able to approve and send.
+ */
+export const canApproveOutreach = (
+  role: string | null | undefined,
+  policy: string = "ADMIN_OR_OWNER",
+) => roleAtLeast(role, policy === "OWNER_ONLY" ? "OWNER" : "ADMIN");
 export const canManageBilling = (role: string | null | undefined) =>
   roleAtLeast(role, "OWNER");
 export const canManageTeam = (role: string | null | undefined) =>

@@ -1,10 +1,24 @@
 import Link from "next/link";
-import { Ban, CheckCircle2, KeyRound, MailWarning, ShieldCheck, Users } from "lucide-react";
+import {
+  Ban,
+  CheckCircle2,
+  Download,
+  KeyRound,
+  MailWarning,
+  ShieldCheck,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
 import { PasswordForm } from "@/components/settings/password-form";
 import { PendingInvites } from "@/components/settings/pending-invites";
 import { TeamInviteForm } from "@/components/settings/team-invite-form";
+import {
+  ComplianceSettingsForm,
+  DeleteWorkspaceForm,
+  RetentionCleanupForm,
+} from "@/components/settings/compliance-forms";
 import {
   BillingCheckoutOptions,
   CancelSubscriptionForm,
@@ -23,6 +37,7 @@ import {
   BILLING_STATUS_LABELS,
   getBillingState,
 } from "@/server/services/billing";
+import { getComplianceState } from "@/server/services/compliance";
 import { countSuppressions } from "@/server/services/suppression";
 import { getTeamState } from "@/server/services/team";
 import { getUsageSummary, METRIC_LABELS } from "@/server/services/workspaces";
@@ -49,11 +64,12 @@ export default async function SettingsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
 
-  const [team, usage, suppressedCount, billing] = await Promise.all([
+  const [team, usage, suppressedCount, billing, compliance] = await Promise.all([
     getTeamState(context.workspace.id),
     getUsageSummary(context.workspace.id),
     countSuppressions(context.workspace.id),
     getBillingState(context.workspace.id),
+    getComplianceState(context.workspace.id),
   ]);
   const { memberships, invites, seatLimit, seatsUsed } = team;
 
@@ -66,6 +82,7 @@ export default async function SettingsPage() {
   const seatsLeft = Math.max(0, seatLimit - seatsUsed);
   const subscription = billing.subscription;
   const canBill = canManageBilling(context.role);
+  const canDeleteWorkspace = roleAtLeast(context.role, "OWNER");
   const canCancelNow = Boolean(
     billing.configured &&
       subscription?.providerSubscriptionId &&
@@ -435,6 +452,96 @@ export default async function SettingsPage() {
             Manage suppression
           </Link>
         </div>
+      </Card>
+
+      <Card id="compliance">
+        <CardHeader
+          title="Data and compliance"
+          description="Retention, approval policy, exports, and workspace deletion."
+          action={<ShieldCheck className="size-4 text-success" aria-hidden="true" />}
+        />
+        {compliance ? (
+          <div className="grid gap-5 p-5 lg:grid-cols-2">
+            <div className="space-y-5">
+              <ComplianceSettingsForm
+                canEdit={canManage}
+                defaults={{
+                  retentionDays: compliance.leadRetentionDays,
+                  approvalPolicy: compliance.approvalPolicy,
+                }}
+              />
+
+              <div className="rounded-xl border border-line bg-canvas/60 px-3.5 py-3 text-[11px] leading-relaxed text-muted">
+                <p className="font-semibold text-ink-soft">Current data</p>
+                <p className="mt-1">
+                  {compliance.activeLeads.toLocaleString()} active lead(s),{" "}
+                  {compliance.softDeletedLeads.toLocaleString()} soft-deleted lead(s) awaiting the{" "}
+                  {compliance.graceDays}-day purge.{" "}
+                  {compliance.oldestLeadAt
+                    ? `Oldest active lead: ${formatDate(compliance.oldestLeadAt)}.`
+                    : "No leads are stored yet."}
+                </p>
+                <div className="mt-3">
+                  <p className="font-semibold text-ink-soft">Retention cleanup</p>
+                  <p className="mb-2 mt-1">
+                    Applies the retention window now. Soft-deleted data is purged permanently
+                    after the grace period. The worker runs the same cleanup on every scheduled
+                    run.
+                  </p>
+                  <RetentionCleanupForm canRun={canManage} />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="rounded-xl border border-line px-3.5 py-3 text-[11px] leading-relaxed text-muted">
+                <p className="flex items-center gap-1.5 font-semibold text-ink-soft">
+                  <Download className="size-3.5" aria-hidden="true" />
+                  Data export (DSAR)
+                </p>
+                <p className="mt-1">
+                  Download a JSON bundle of the workspace, members, leads, campaigns, outreach,
+                  suppression entries, imports, jobs, integrations, and audit log. The export is
+                  audit-logged and rate-limited.
+                </p>
+                {canManage ? (
+                  <a
+                    href="/api/workspace/export"
+                    className="mt-2 inline-flex h-9 items-center justify-center rounded-xl border border-line-strong bg-surface px-3.5 text-[13px] font-semibold text-ink hover:bg-canvas"
+                  >
+                    Download workspace data
+                  </a>
+                ) : (
+                  <p className="mt-2 font-medium text-warning">
+                    Only workspace admins and owners can export workspace data.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-danger/30 bg-danger/5 px-3.5 py-3 text-[11px] leading-relaxed text-muted">
+                <p className="flex items-center gap-1.5 font-semibold text-danger">
+                  <Trash2 className="size-3.5" aria-hidden="true" />
+                  Delete workspace
+                </p>
+                <p className="mt-1">
+                  Access ends immediately for every member. Data is purged after 30 days. A live
+                  Razorpay subscription must be cancelled first; deletion is refused while billing
+                  is active.
+                </p>
+                <div className="mt-3">
+                  <DeleteWorkspaceForm
+                    workspaceName={context.workspace.name}
+                    canDelete={canDeleteWorkspace}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5">
+            <Alert tone="warning">Compliance settings could not be loaded.</Alert>
+          </div>
+        )}
       </Card>
     </div>
   );

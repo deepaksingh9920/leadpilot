@@ -24,6 +24,9 @@ describe("role hierarchy", () => {
 
   it("enforces the documented capability rules", () => {
     expect(canApproveOutreach("ADMIN")).toBe(true);
+    expect(canApproveOutreach("ADMIN", "ADMIN_OR_OWNER")).toBe(true);
+    expect(canApproveOutreach("ADMIN", "OWNER_ONLY")).toBe(false);
+    expect(canApproveOutreach("OWNER", "OWNER_ONLY")).toBe(true);
     expect(canApproveOutreach("MEMBER")).toBe(false);
     expect(canManageBilling("ADMIN")).toBe(false);
     expect(canManageBilling("OWNER")).toBe(true);

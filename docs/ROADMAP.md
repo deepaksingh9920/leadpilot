@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, and security hardening · Last updated: 2026-11-10
+Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, security hardening, and compliance controls · Last updated: 2026-11-10
 
 ## Working rules
 
@@ -487,13 +487,54 @@ Residual risk:
   a trusted proxy that overwrites it.
 - The `deepmerge-ts` advisory stays open until Prisma 7.
 
+#### Slice 4 — Compliance controls (complete, 2026-11-10)
+
+Build (done):
+1. `Workspace` gains `leadRetentionDays` (null / 30 / 90 / 180 / 365) and an
+   `approvalPolicy` (`ADMIN_OR_OWNER` default, or `OWNER_ONLY`) plus a `deletedAt` index.
+   The migration is `20261110185203_phase5b_compliance_settings`.
+2. `src/lib/compliance/settings.ts`: pure parsing, cutoff, grace-period, and label helpers
+   used by the service and UI.
+3. `src/server/services/compliance.ts`: settings read/update with audit of previous and next
+   values; retention cleanup that soft-deletes leads older than the window and permanently
+   purges leads and workspaces after the 30-day grace; versioned DSAR export; and
+   workspace deletion requiring the exact workspace name and current password, refusing
+   while a Razorpay subscription is live, then soft-deleting, revoking invites, and ending
+   the session.
+4. `src/app/api/workspace/export/route.ts`: admin-only JSON download with
+   `Content-Disposition`, `no-store`, audit logging, and a 3/hour limit.
+5. `/settings` "Data and compliance" card: retention and approval-policy form, current-data
+   summary, manual cleanup, DSAR download, and the owner-only delete-workspace form.
+6. Outreach policy is enforced twice: the UI and server actions gate on the workspace policy,
+   and `approveOutreachMessage`/`sendOutreachMessage` re-read the actor's membership and the
+   workspace policy, returning `FORBIDDEN` on a direct-call bypass.
+7. The worker endpoint runs retention cleanup after each queue batch and returns its counts;
+   a cleanup failure is reported without discarding the job result. Compliance settings,
+   export, cleanup, and deletion take their limits from the centralized matrix.
+
+Verified:
+- `compliance.integration.test.ts` covers valid/invalid settings, no-op audit behaviour,
+  retention soft delete, grace-period purge, active-workspace safety, workspace purge and
+  audit survival, export contents/soft-delete exclusion/audit, wrong-name and wrong-password
+  deletion refusal, live-subscription refusal, and successful deletion with invite cleanup.
+- `outreach.integration.test.ts` proves an admin can approve under the default policy but is
+  refused at approval and send under `OWNER_ONLY`, while the owner can still approve.
+- `npm test` (36 files / 287 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Residual risk:
+- The worker must be scheduled for retention and purge to run automatically; manual cleanup
+  and the in-app worker trigger are the only execution paths in this build.
+- Workspace deletion is soft delete plus scheduled purge. Account-level ownership transfer
+  and account deletion remain out of scope.
+- Audit records are application-level only; external tamper evidence remains a launch gap.
+
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an
    extra-workspace creation flow, so the limit can only be displayed.
-2. Compliance controls: retention settings, DSAR/export and account deletion workflow,
-   per-workspace approval policy, and campaign/outreach compliance settings.
+2. Account-level ownership transfer and account deletion.
 3. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
-   monitoring/alerting, retention jobs, and the Prisma major upgrade.
+   monitoring/alerting, worker scheduling, and the Prisma major upgrade.
 
 Acceptance criteria:
 - Test-mode Razorpay upgrade/downgrade/cancel/webhook replay all update entitlements once.

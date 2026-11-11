@@ -21,6 +21,7 @@ export default async function LoginPage({
   const nextParam = typeof params.next === "string" ? params.next : undefined;
   const resetDone = params.reset === "1";
   const verified = params.verified === "1";
+  const workspaceDeleted = params.deleted === "1";
 
   return (
     <AuthCard
@@ -43,6 +44,12 @@ export default async function LoginPage({
         ) : null}
         {verified ? (
           <Alert tone="success">Email verified. You can sign in now.</Alert>
+        ) : null}
+        {workspaceDeleted ? (
+          <Alert tone="info">
+            The workspace was deleted and your session ended. Data is permanently purged after
+            the 30-day grace period.
+          </Alert>
         ) : null}
         <LoginForm next={nextParam ? safeNextPath(nextParam) : undefined} />
       </div>

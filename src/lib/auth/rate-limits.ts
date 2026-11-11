@@ -29,6 +29,10 @@ export const RATE_LIMITS = {
   inviteAccept: { limit: 10, windowSeconds: 60 * 60 },
   inviteRegister: { limit: 5, windowSeconds: 60 * 60 },
   billingCheckout: { limit: 10, windowSeconds: 60 * 60 },
+  complianceUpdate: { limit: 20, windowSeconds: 60 * 60 },
+  dataExport: { limit: 3, windowSeconds: 60 * 60 },
+  retentionCleanup: { limit: 5, windowSeconds: 60 * 60 },
+  workspaceDeletion: { limit: 3, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type RateLimitKey = keyof typeof RATE_LIMITS;

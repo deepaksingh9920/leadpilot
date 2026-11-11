@@ -52,11 +52,21 @@ separate and requires its own consent and unsubscribe handling.
   company/profile URL where the provider supplies it.
 - Do not collect home addresses, personal mobile numbers, government IDs, or free-text
   personal notes beyond what the customer types intentionally.
-- Default retention: active workspace data retained while the account is active; deleted
-  leads soft-deleted for 30 days then purged, except suppression hashes and audit records
-  required for compliance.
-- Account deletion: purge business data within 30 days, retain minimal billing/audit
-  records as legally required, and document the schedule in the privacy policy.
+- Retention is a workspace setting: keep until deleted (default), or soft-delete leads after
+  30, 90, 180, or 365 days without an update. Soft-deleted leads are permanently purged
+  after a 30-day grace period. The worker runs cleanup after each queue batch; an admin can
+  also run it manually from Settings. Suppression entries and audit records are retained for
+  compliance rather than purged with a lead.
+- Workspace deletion: the owner types the workspace name and re-enters their password. The
+  workspace is soft-deleted immediately (access ends for every member and pending invites
+  are revoked) and purged after 30 days. Deletion is refused while a live Razorpay
+  subscription is attached so a customer cannot keep paying for an inaccessible workspace.
+- Data export: an admin can download a versioned JSON bundle of workspace, member, lead,
+  campaign, outreach, suppression, import, job, integration, and audit data. The export is
+  audit-logged and rate-limited.
+- Account-level deletion and ownership transfer are not implemented; workspaces must be
+  deleted individually by their owner. Document the actual schedule and this limitation in
+  the privacy policy.
 - Backups inherit the same retention window.
 
 ## 4. Outreach requirements
@@ -70,9 +80,11 @@ Implemented in Phase 4B and enforced server-side:
   The link is bound to one workspace/message/recipient; only its hash is stored. Confirming
   adds a suppression entry and is idempotent. The message also includes the sender identity
   and mailing address.
-- **Approval:** a `MEMBER` drafts; `ADMIN`/`OWNER` approves. Approval is bound to a SHA-256
-  hash of the exact subject and body, so any later edit revokes it. There is no automatic
-  send and no self-approval bypass.
+- **Approval:** a `MEMBER` drafts; `ADMIN`/`OWNER` approves under the default policy, or only
+  the `OWNER` when the workspace selects owner-only approval. The policy is re-checked in the
+  service layer at approval and send time. Approval is bound to a SHA-256 hash of the exact
+  subject and body, so any later edit revokes it. There is no automatic send and no
+  self-approval bypass.
 - **Send caps:** plan-level daily send allowance plus a per-campaign daily cap; both are
   enforced atomically in the send path. Messages are refused if the campaign is not active.
 - **Suppression:** workspace-scoped list with manual add, CSV import, search, and removal.
@@ -179,14 +191,18 @@ Implemented in Phase 4B and enforced server-side:
 - Suppression list: add/remove manually, import CSV, view reason/source/date
   (implemented at **Settings → Suppression**).
 - Approval and send caps enforced server-side; campaign daily caps are configurable
-  (implemented). A per-workspace approval-policy setting remains pending.
+  (implemented). Each workspace chooses admins-and-owners or owner-only approval, enforced in
+  the service layer (implemented in Phase 5B slice 4).
 - Team invitations and seat limits: admins invite by email, pending invites reserve seats,
   and only the owner can invite an admin (implemented in Phase 5B slice 2).
 - Sender identity, mailing address, and unsubscribe footer (implemented; address required
   before approval).
 - Billing is owner-only: the settings page shows the current provider status, interval, and
   renewal/end date, and explains when billing is unconfigured (implemented in Phase 5A).
-- Data export and deletion requests handled per plan and law.
+- Data export and deletion: admins download a JSON DSAR bundle; the owner deletes the
+  workspace with typed-name and password confirmation, subject to the 30-day purge and the
+  live-subscription guard (implemented in Phase 5B slice 4). Account-level deletion remains
+  pending.
 - Integration disconnection immediately stops provider access.
 - Clear in-product explanations of verification status and source limitations.
 
@@ -213,7 +229,8 @@ by a superadmin and recorded.
       credentials and provider plan IDs.
 - [ ] Payment/webhook subprocessor entry and billing terms reviewed for launch.
 - [ ] Email authentication configured (SPF, DKIM, DMARC) on the sending domain.
-- [ ] Retention and deletion jobs implemented and tested.
+- [x] Retention settings, soft-delete/purge cleanup, DSAR export, and workspace deletion
+      tested (Phase 5B slice 4). The worker must still be scheduled in production.
 - [ ] Audit log coverage verified for all privileged actions, including external tamper
       evidence for regulated customers.
 - [ ] Data processing register and subprocessor list maintained.

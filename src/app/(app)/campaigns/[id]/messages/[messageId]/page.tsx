@@ -59,7 +59,10 @@ export default async function OutreachMessagePage({
   if (message.campaignId !== campaignId) notFound();
   if (!message.campaign) notFound();
 
-  const canApprove = canApproveOutreach(context.role);
+  const canApprove = canApproveOutreach(
+    context.role,
+    context.workspace.approvalPolicy,
+  );
   const canEdit = roleAtLeast(context.role, "MEMBER");
   const editable = canEdit && ["DRAFT", "APPROVED"].includes(message.status);
   const canCancel = canEdit && !["SENT", "CANCELLED", "SENDING"].includes(message.status);
@@ -256,7 +259,9 @@ export default async function OutreachMessagePage({
 
               {!canApprove ? (
                 <p className="text-[11px] leading-relaxed text-muted">
-                  Only workspace admins and owners can approve or send outreach.
+                  {context.workspace.approvalPolicy === "OWNER_ONLY"
+                    ? "This workspace uses owner-only approval, so only the owner can approve or send outreach."
+                    : "Only workspace admins and owners can approve or send outreach."}
                 </p>
               ) : null}
             </div>

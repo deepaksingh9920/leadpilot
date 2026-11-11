@@ -359,6 +359,71 @@ describe("approval", () => {
     });
     expect(JSON.parse(audit?.metadata ?? "{}").revokedApproval).toBe(true);
   });
+
+  it("re-checks the workspace approval policy in the service layer", async () => {
+    const policyTenant = await createTestTenant(db, { key: "outreach-policy" });
+    await addProfile(policyTenant);
+    const fixture = await draftFixture({ tenant: policyTenant });
+
+    const admin = await db.user.create({
+      data: {
+        email: `admin-${policyTenant.workspace.id}@example.test`,
+        name: "Workspace Admin",
+        passwordHash: "not-a-real-hash",
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await db.membership.create({
+      data: { workspaceId: policyTenant.workspace.id, userId: admin.id, role: "ADMIN" },
+    });
+
+    // The default policy allows admins.
+    const adminApproved = await approveOutreachMessage({
+      workspaceId: policyTenant.workspace.id,
+      actorId: admin.id,
+      messageId: fixture.messageId,
+    });
+    expect(adminApproved).toEqual({ ok: true });
+
+    // Editing revokes approval, then the owner tightens the policy.
+    await updateOutreachDraft({
+      workspaceId: policyTenant.workspace.id,
+      userId: policyTenant.user.id,
+      messageId: fixture.messageId,
+      subject: "Policy check subject",
+      body: "A policy check body with enough detail for validation.",
+    });
+    await db.workspace.update({
+      where: { id: policyTenant.workspace.id },
+      data: { approvalPolicy: "OWNER_ONLY" },
+    });
+
+    const deniedApproval = await approveOutreachMessage({
+      workspaceId: policyTenant.workspace.id,
+      actorId: admin.id,
+      messageId: fixture.messageId,
+    });
+    expect(deniedApproval).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    expect((await messageRow(fixture.messageId)).status).toBe("DRAFT");
+
+    const ownerApproval = await approveOutreachMessage({
+      workspaceId: policyTenant.workspace.id,
+      actorId: policyTenant.user.id,
+      messageId: fixture.messageId,
+    });
+    expect(ownerApproval).toEqual({ ok: true });
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const deniedSend = await sendOutreachMessage({
+      workspaceId: policyTenant.workspace.id,
+      actorId: admin.id,
+      messageId: fixture.messageId,
+    });
+    expect(deniedSend).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await messageRow(fixture.messageId)).status).toBe("APPROVED");
+  });
 });
 
 describe("sending", () => {

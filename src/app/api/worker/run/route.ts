@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { isWorkerAuthorized } from "@/lib/security/worker-auth";
+import { runRetentionCleanup } from "@/server/services/compliance";
 import { runWorker } from "@/server/services/jobs";
 
 export const runtime = "nodejs";
@@ -38,7 +39,22 @@ export async function POST(request: Request) {
 
   try {
     const result = await runWorker({ limit });
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+
+    // Retention cleanup runs on the same schedule as the job worker so stale
+    // leads are soft-deleted and expired data is purged without a separate cron.
+    // A cleanup failure must not hide the job result that was already produced.
+    let retention: Awaited<ReturnType<typeof runRetentionCleanup>> | { error: string };
+    try {
+      retention = await runRetentionCleanup();
+    } catch (error) {
+      console.error("Retention cleanup failed", error);
+      retention = { error: "Retention cleanup failed." };
+    }
+
+    return Response.json(
+      { ...result, retention },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("Worker run failed", error);
     return Response.json({ error: "Worker run failed." }, { status: 500 });

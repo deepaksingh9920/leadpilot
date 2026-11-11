@@ -110,8 +110,14 @@ export async function approveOutreachMessageAction(
   if (!context?.workspace) {
     return { status: "error", message: "Your session expired. Sign in and try again." };
   }
-  if (!canApproveOutreach(context.role)) {
-    return { status: "error", message: "Only workspace admins can approve outreach." };
+  if (!canApproveOutreach(context.role, context.workspace.approvalPolicy)) {
+    return {
+      status: "error",
+      message:
+        context.workspace.approvalPolicy === "OWNER_ONLY"
+          ? "Only the workspace owner can approve outreach under the current policy."
+          : "Only workspace admins and owners can approve outreach.",
+    };
   }
 
   const messageId = formString(formData, "messageId");
@@ -165,8 +171,14 @@ export async function sendOutreachMessageAction(
   if (!context?.workspace) {
     return { status: "error", message: "Your session expired. Sign in and try again." };
   }
-  if (!canApproveOutreach(context.role)) {
-    return { status: "error", message: "Only workspace admins can send outreach." };
+  if (!canApproveOutreach(context.role, context.workspace.approvalPolicy)) {
+    return {
+      status: "error",
+      message:
+        context.workspace.approvalPolicy === "OWNER_ONLY"
+          ? "Only the workspace owner can send outreach under the current policy."
+          : "Only workspace admins and owners can send outreach.",
+    };
   }
 
   const limit = await checkRateLimit(

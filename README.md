@@ -26,9 +26,13 @@ every send waits for a human decision.
 > activates only from a signature-verified, idempotent webhook. Security hardening now
 > centralizes every rate-limit policy, applies a reviewed CSP/headers set on every route,
 > authenticates the worker in constant time, and documents the threat model and residual
-> risks in `docs/SECURITY.md`. Remaining Phase 5 work is workspace-count enforcement,
-> retention/DSAR controls, and follow-up agents. LeadPilot never fabricates leads, contact
-> details, company facts, sources, opens, or replies.
+> risks in `docs/SECURITY.md`. Compliance controls are now enforced too: workspace admins
+> choose a lead-retention window (soft delete, then permanent purge after a 30-day grace),
+> set outreach approval to admins/owners or owner-only, download a JSON DSAR bundle, run
+> retention cleanup, and soft-delete the workspace after typed confirmation and password
+> re-check. Remaining Phase 5 work is workspace-count enforcement and follow-up agents.
+> LeadPilot never fabricates leads, contact details, company facts, sources, opens, or
+> replies.
 
 ## Stack
 
@@ -227,6 +231,18 @@ proves ownership of the invited address and marks the email verified; an existin
 signs in and accepts there instead. The invitee is added only when the signed-in email
 matches the invitation, and every invite, revocation, and acceptance writes an audit entry.
 
+**Data and compliance** — workspace admins set a retention window (keep until deleted, or
+30/90/180/365 days) that soft-deletes stale leads and permanently purges them after a
+30-day grace period. The scheduled worker runs the same cleanup and purges soft-deleted
+workspaces after their grace period. Outreach approval can be tightened from
+admins-and-owners to **owner only**; the policy is re-checked in the service layer at both
+approval and send time, so a stale UI or direct call cannot bypass it. Admins can download
+a versioned JSON DSAR bundle of workspace data and audit history, and the owner can delete
+the workspace with typed-name confirmation and a password re-check. Deletion is refused
+while a live Razorpay subscription is attached, revokes access immediately, and purges data
+after 30 days. Export, cleanup, settings changes, and deletion are rate-limited and
+audit-logged.
+
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, server-side rate limits, and a reviewed header set on every
 route. The CSP locks resources to this origin, blocks framing and plugins, and restricts
@@ -235,10 +251,12 @@ bcrypt cost 12, session/reset/invite/unsubscribe tokens are stored only as SHA-2
 and the worker secret is compared in constant time. Every sensitive action and API route
 takes its limit from one policy matrix: signup, login, password reset/change, profile
 updates, onboarding, CSV and suppression imports, lead export, agent runs, outreach
-drafts/sends, team invites/acceptance, and billing checkout. Outreach cannot be sent without
-an admin approval, and suppressed addresses are blocked at draft time and again immediately
-before delivery. The threat model, CSP residual risk, rate-limit matrix, secret rotation
-notes, dependency-audit result, and production checklist are in `docs/SECURITY.md`.
+drafts/sends, team invites/acceptance, billing checkout, compliance settings, data export,
+retention cleanup, and workspace deletion. Outreach cannot be sent without a human approval
+that matches the workspace policy, and suppressed addresses are blocked at draft time and
+again immediately before delivery. The threat model, CSP residual risk, rate-limit matrix,
+secret rotation notes, dependency-audit result, and production checklist are in
+`docs/SECURITY.md`.
 
 ## Not implemented yet
 
@@ -248,8 +266,8 @@ notes, dependency-audit result, and production checklist are in `docs/SECURITY.m
   stay disabled until real test keys, a webhook secret, and Razorpay plan IDs are supplied.
 - Workspace-count limit enforcement: no account-level billing or extra-workspace creation
   flow exists yet, so the limit is shown but cannot be exercised.
-- Retention/DSAR controls, per-workspace approval policy, and campaign/outreach compliance
-  settings.
+- Account-level ownership transfer and account deletion. Deletion today is workspace-level;
+  the owner deletes each workspace explicitly.
 - Postgres deployment, trusted-proxy configuration, monitoring/alerting, and deployment-time
   hardening (see the production checklist in `docs/SECURITY.md`).
 - A strict nonce-based CSP. The current policy is nonce-free because static pages cannot
@@ -272,7 +290,7 @@ src/
     (app)/           Dashboard, leads (import/detail), campaigns
                      (new/detail/messages), agents, runs, integrations,
                      settings (incl. suppression), admin
-    api/             CSV export, worker, and Razorpay webhook endpoints
+    api/             CSV export, DSAR workspace export, worker, and Razorpay webhook endpoints
     onboarding/      Three-step setup wizard
     unsubscribe/     Public signed unsubscribe page
   components/
@@ -288,6 +306,7 @@ src/
     agents/          Runtime gating, output schemas, input schemas
     auth/            Sessions, roles, rate-limit matrix, audit
     billing/         Razorpay API adapter, signature verification, webhook parsing
+    compliance/      Retention windows, approval policies, purge helpers
     email/           Resend adapter
     security/        CSP/header builder, constant-time worker authorization
     jobs/            Queue policy, leases, retry backoff
@@ -322,16 +341,17 @@ provider request shaping/normalization/error mapping for Apollo, PDL, Google Pla
 adapter, and the Razorpay billing adapter (auth headers, checkout/cancel payloads, webhook
 parsing, and HMAC signature verification). Database integration tests create a throwaway
 SQLite database with `prisma db push` and exercise the real import, job, agent-executor,
-outreach, suppression, unsubscribe, billing, admin, and team services, including
+outreach, suppression, unsubscribe, billing, admin, compliance, and team services, including
 transactions, unique constraints, retries, cancellation, usage refunds, approval hash
 revocation, suppression at draft and send time, provider failures with allowance release,
 the Resend payload, public unsubscribe, Razorpay checkout, webhook activation and replay
 idempotency, plan mapping, tenant isolation, downgrade to Free, refusal to transact without
 credentials, workspace plan assignment, provider-managed conflicts, feature switches that
-block signup, import, or sending, and invite permissions, seat reservation, revocation,
-expiry, wrong-email refusal, and new-account registration. The suite is **34 files / 269
-tests**. Before shipping any change, also run `npm run lint`, `npm run typecheck`, and
-`npm run build`.
+block signup, import, or sending, invite permissions, seat reservation, revocation, expiry,
+wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
+contents, workspace-deletion guards, and owner-only approval enforcement. The suite is
+**36 files / 287 tests**. Before shipping any change, also run `npm run lint`,
+`npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics
 
