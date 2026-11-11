@@ -113,6 +113,12 @@ configured:
 The app reports each provider's real configuration state on **Integrations**; it never
 falls back to demo data.
 
+`GET /api/health` is an unauthenticated readiness probe for load balancers and uptime
+monitors. It returns overall status, database reachability and latency, and coarse provider
+states (`configured` / `not_configured`, plus `ready` / `disabled` for the agent runtime). It
+never returns keys, URLs, or connection strings, sends `no-store`, and responds `503` when
+the database cannot be reached.
+
 ### Seeded data
 
 `npm run db:seed` is idempotent and creates:
@@ -296,7 +302,8 @@ src/
     (app)/           Dashboard, leads (import/detail), campaigns
                      (new/detail/messages), agents, runs, integrations,
                      settings (incl. suppression), admin
-    api/             CSV export, DSAR workspace export, worker, and Razorpay webhook endpoints
+    api/             CSV export, DSAR workspace export, health probe, worker, and
+                     Razorpay webhook endpoints
     onboarding/      Three-step setup wizard
     unsubscribe/     Public signed unsubscribe page
   components/
@@ -356,7 +363,7 @@ credentials, workspace plan assignment, provider-managed conflicts, feature swit
 block signup, import, or sending, invite permissions, seat reservation, revocation, expiry,
 wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
 contents, workspace-deletion guards, and owner-only approval enforcement. The suite is
-**36 files / 290 tests**. Before shipping any change, also run `npm run lint`,
+**37 files / 294 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

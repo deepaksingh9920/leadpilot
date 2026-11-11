@@ -429,7 +429,9 @@ referenced by plan and interval in `PlanProviderPrice`.
 
 ## 12. Observability and error handling
 
-- `/api/health` reports app, DB, and provider configuration status without secrets.
+- `/api/health` reports app, DB, and provider configuration status without secrets. It is
+  unauthenticated by design, exposes only booleans and latencies, and returns `503` when the
+  database probe fails so orchestrators can route around an unhealthy instance.
 - Structured logs include `requestId`, `workspaceId`, `userId`, route, latency, and
   outcome. PII is redacted.
 - Server actions return typed results; UI surfaces actionable errors. Unexpected errors

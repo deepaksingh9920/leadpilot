@@ -270,12 +270,12 @@ log store) is not implemented and should be considered for regulated customers.
 - `deepmerge-ts` is not called with customer data by application code. The practical risk is
   low but not zero, so it remains an explicit residual risk rather than a silent exception.
 
-## 14. Verification performed (2026-11-10)
+## 14. Verification performed (2026-11-11)
 
 - `npm run typecheck` — clean.
 - `npm run lint` — clean.
 - `npm run build` — clean; all routes compile and prerender as before.
-- `npm test` - **36 files / 290 tests** pass, including suites for header/CSP values, worker
+- `npm test` - **37 files / 294 tests** pass, including suites for header/CSP values, worker
   constant-time authorization, the rate-limit matrix, compliance settings/retention/export/
   deletion, and owner-only approval enforcement at the service layer.
 - Live dev-server header check on `/login` confirmed CSP, HSTS absence in development,
@@ -292,6 +292,10 @@ log store) is not implemented and should be considered for regulated customers.
   bundle with `no-store` and an attachment filename, ran retention cleanup and saw honest zero
   counts, and submitted a wrong workspace name to the deletion form, which was refused with the
   workspace intact. No console errors were recorded.
+- `/api/health` returned `200` with `Cache-Control: no-store`, `x-robots-tag: noindex`,
+  database `ok`, and provider states only. Unit tests prove a failed database probe degrades
+  the report without throwing (the route maps it to `503`) and that no key names, URLs, or
+  secrets appear in the payload.
 - Production-mode header values (HSTS and the stricter CSP) are unit-tested but were not
   served by a production build during this pass.
 

@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, security hardening, compliance controls, and ownership transfer · Last updated: 2026-11-11
+Status: Phase 6 verification and hardening in progress — health/readiness probe complete. Phase 5B enforcement, admin, security, compliance, and ownership-transfer work is complete except workspace-count enforcement and account-level deletion · Last updated: 2026-11-11
 
 ## Working rules
 
@@ -576,7 +576,30 @@ plan IDs.
 
 ## Phase 6 — Verification, hardening, deployment
 
-Build:
+#### Slice 1 — Health/readiness probe (complete, 2026-11-11)
+
+Build (done):
+1. `src/server/services/health.ts`: a structural database probe (`SELECT 1`), coarse provider
+   status mapping from `env`, injected clock for tests, and a report that degrades instead of
+   throwing when the database is unreachable. It never includes keys, URLs, or connection
+   strings.
+2. `src/app/api/health/route.ts`: unauthenticated `GET` returning `200` when healthy and `503`
+   when degraded, with `Cache-Control: no-store` and `x-robots-tag: noindex`.
+
+Verified:
+- `health.test.ts` covers a healthy probe with measured latency, a failing probe that returns
+  `degraded`/`unavailable` without throwing, configured/unconfigured provider mapping, a
+  coarse-clock zero floor, and a check that no secret-shaped values appear in the payload.
+- Live dev server: `GET /api/health` returned `200` with database `ok`, provider booleans, and
+  the expected cache/robots headers; the dev server was then stopped.
+- `npm test` (37 files / 294 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Residual risk:
+- The probe is unauthenticated and performs one trivial query per request; a production
+  deployment should front it with platform rate limiting or cache it at the edge if abused.
+
+Remaining build:
 1. Full test pass: unit, integration, E2E critical flows, workspace isolation, limits,
    suppression, provider failure modes.
 2. Fix all defects found; remove dead code and placeholder copy; accessibility pass
