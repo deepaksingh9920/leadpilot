@@ -74,7 +74,7 @@ served in production.
 | Role | Capabilities |
 |---|---|
 | `SUPER_ADMIN` | Platform admin console, plan/limit configuration, provider status, all workspaces (read), audit search |
-| `OWNER` | Everything in the workspace, billing, workspace deletion, member management |
+| `OWNER` | Everything in the workspace, billing, workspace deletion, ownership transfer, member management |
 | `ADMIN` | Members (except owner), leads, campaigns, agents, integrations, exports, outreach approval |
 | `MEMBER` | Create/edit leads, run agents, draft campaigns and outreach, cannot approve sends or manage billing |
 | `VIEWER` | Read-only; exports disabled by default |
@@ -311,7 +311,8 @@ Detailed rationale and verification live in `docs/SECURITY.md`.
   onboarding, CSV/suppression imports, exports, agent runs, outreach drafts/sends, invites,
   and billing checkout. Plan entitlements are enforced separately and atomically.
 - Authorization: role + workspace checks in the service layer; no direct Prisma calls from
-  components. Billing, admin invites, and workspace deletion are owner-only; platform admin
+  components. Billing, admin invites, workspace deletion, and ownership transfer are
+  owner-only; platform admin
   is superadmin-only. Outreach approval is role-checked in the UI/actions and re-checked in
   the service layer against the workspace's current approval policy, so a direct service call
   cannot bypass an owner-only policy.

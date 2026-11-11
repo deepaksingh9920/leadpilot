@@ -14,6 +14,7 @@ import { ProfileSettingsForm } from "@/components/settings/profile-settings-form
 import { PasswordForm } from "@/components/settings/password-form";
 import { PendingInvites } from "@/components/settings/pending-invites";
 import { TeamInviteForm } from "@/components/settings/team-invite-form";
+import { OwnershipTransferForm } from "@/components/settings/ownership-transfer-form";
 import {
   ComplianceSettingsForm,
   DeleteWorkspaceForm,
@@ -60,9 +61,19 @@ const PLAN_METRICS = [
   "workspaces",
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
+
+  const params = await searchParams;
+  // Only show the transfer notice to the former owner, who is now an admin. A
+  // random visitor to ?ownership=transferred should not be told they changed roles.
+  const ownershipTransferred =
+    params.ownership === "transferred" && context.role === "ADMIN";
 
   const [team, usage, suppressedCount, billing, compliance] = await Promise.all([
     getTeamState(context.workspace.id),
@@ -83,6 +94,20 @@ export default async function SettingsPage() {
   const subscription = billing.subscription;
   const canBill = canManageBilling(context.role);
   const canDeleteWorkspace = roleAtLeast(context.role, "OWNER");
+  const canTransferOwnership = roleAtLeast(context.role, "OWNER");
+  const ownershipCandidates = memberships
+    .filter(
+      (membership) =>
+        membership.userId !== context.user.id &&
+        membership.role !== "VIEWER" &&
+        membership.role !== "OWNER",
+    )
+    .map((membership) => ({
+      id: membership.userId,
+      name: membership.user.name,
+      email: membership.user.email,
+      role: membership.role,
+    }));
   const canCancelNow = Boolean(
     billing.configured &&
       subscription?.providerSubscriptionId &&
@@ -113,6 +138,13 @@ export default async function SettingsPage() {
           Manage your account, workspace profile, security, team, and plan usage.
         </p>
       </div>
+
+      {ownershipTransferred ? (
+        <Alert tone="success">
+          Ownership transferred. You are now an admin of this workspace. The new owner can
+          manage billing, the team, compliance settings, and deletion.
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
         <Card className="p-5">
@@ -433,6 +465,22 @@ export default async function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {canTransferOwnership ? (
+        <Card id="ownership">
+          <CardHeader
+            title="Workspace ownership"
+            description="Hand control of this workspace to another member. Only the current owner can do this."
+            action={<Badge tone="brand">Owner only</Badge>}
+          />
+          <div className="p-5">
+            <OwnershipTransferForm
+              candidates={ownershipCandidates}
+              canTransfer={canTransferOwnership}
+            />
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader

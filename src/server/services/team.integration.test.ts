@@ -12,6 +12,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.EMAIL_FROM;
 
 const { db } = await import("@/lib/db");
+const { hashPassword } = await import("@/lib/auth/password");
 const { randomToken, sha256 } = await import("@/lib/security/hash");
 const {
   INVITE_TTL_MS,
@@ -21,6 +22,7 @@ const {
   inviteMember,
   registerAndAcceptInvite,
   revokeInvite,
+  transferWorkspaceOwnership,
 } = await import("@/server/services/team");
 
 type Tenant = Awaited<ReturnType<typeof createTestTenant>>;
@@ -398,5 +400,140 @@ describe("team invitations", () => {
     const delta = row!.expiresAt.getTime() - before;
     expect(delta).toBeGreaterThan(INVITE_TTL_MS - 60_000);
     expect(delta).toBeLessThan(INVITE_TTL_MS + 60_000);
+  });
+});
+
+describe("workspace ownership transfer", () => {
+  const password = "OwnerPassword9!";
+
+  async function tenantWithPassword(key: string) {
+    const tenant = await createTestTenant(db, { key, seatLimit: 10 });
+    await db.user.update({
+      where: { id: tenant.user.id },
+      data: { passwordHash: await hashPassword(password) },
+    });
+    return tenant;
+  }
+
+  async function membershipRole(workspaceId: string, userId: string) {
+    return (
+      await db.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId } },
+      })
+    )?.role;
+  }
+
+  it("refuses admins, self, viewers, missing members, and a wrong password", async () => {
+    const tenant = await tenantWithPassword("transfer-guards");
+    const admin = await createUser(uniqueEmail("transfer-admin"));
+    const viewer = await createUser(uniqueEmail("transfer-viewer"));
+    await addMember(tenant.workspace.id, admin.id, "ADMIN");
+    await addMember(tenant.workspace.id, viewer.id, "VIEWER");
+
+    const adminAttempt = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: admin.id,
+      targetUserId: tenant.user.id,
+      password,
+    });
+    expect(adminAttempt).toMatchObject({ ok: false, code: "FORBIDDEN" });
+
+    const selfAttempt = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: tenant.user.id,
+      password,
+    });
+    expect(selfAttempt).toMatchObject({ ok: false, code: "INVALID" });
+
+    const viewerAttempt = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: viewer.id,
+      password,
+    });
+    expect(viewerAttempt).toMatchObject({ ok: false, code: "INVALID" });
+
+    const missingAttempt = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: "not-a-member",
+      password,
+    });
+    expect(missingAttempt).toMatchObject({ ok: false, code: "INVALID" });
+
+    const wrongPassword = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: admin.id,
+      password: "WrongPassword9!",
+    });
+    expect(wrongPassword).toMatchObject({ ok: false, code: "INVALID" });
+
+    const workspace = await db.workspace.findUniqueOrThrow({
+      where: { id: tenant.workspace.id },
+    });
+    expect(workspace.ownerId).toBe(tenant.user.id);
+    expect(await membershipRole(tenant.workspace.id, admin.id)).toBe("ADMIN");
+  });
+
+  it("moves ownerId and both roles in one transaction and audits the change", async () => {
+    const tenant = await tenantWithPassword("transfer-success");
+    const target = await createUser(uniqueEmail("transfer-target"), "New Owner");
+    await addMember(tenant.workspace.id, target.id, "MEMBER");
+
+    const result = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: target.id,
+      password,
+    });
+    expect(result).toEqual({ ok: true, newOwnerName: "New Owner" });
+
+    const workspace = await db.workspace.findUniqueOrThrow({
+      where: { id: tenant.workspace.id },
+    });
+    expect(workspace.ownerId).toBe(target.id);
+    expect(await membershipRole(tenant.workspace.id, tenant.user.id)).toBe("ADMIN");
+    expect(await membershipRole(tenant.workspace.id, target.id)).toBe("OWNER");
+
+    const audit = await db.auditLog.findFirst({
+      where: {
+        workspaceId: tenant.workspace.id,
+        action: "workspace.ownership_transferred",
+      },
+    });
+    expect(audit?.actorId).toBe(tenant.user.id);
+    expect(JSON.parse(audit?.metadata ?? "{}")).toMatchObject({
+      previousOwner: { id: tenant.user.id },
+      nextOwner: { id: target.id },
+    });
+
+    // The former owner can no longer transfer it back.
+    const formerOwnerAttempt = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: target.id,
+      password,
+    });
+    expect(formerOwnerAttempt).toMatchObject({ ok: false, code: "FORBIDDEN" });
+  });
+
+  it("refuses a deleted workspace", async () => {
+    const tenant = await tenantWithPassword("transfer-deleted");
+    const target = await createUser(uniqueEmail("transfer-deleted-target"));
+    await addMember(tenant.workspace.id, target.id, "MEMBER");
+    await db.workspace.update({
+      where: { id: tenant.workspace.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const result = await transferWorkspaceOwnership({
+      workspaceId: tenant.workspace.id,
+      actorId: tenant.user.id,
+      targetUserId: target.id,
+      password,
+    });
+    expect(result).toMatchObject({ ok: false, code: "NOT_FOUND" });
   });
 });

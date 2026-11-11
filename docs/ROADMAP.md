@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, security hardening, and compliance controls · Last updated: 2026-11-10
+Status: Phase 5B enforcement and admin work in progress — workspace plan assignment, searchable audit log, platform feature flags, team invitations and seat enforcement, security hardening, compliance controls, and ownership transfer · Last updated: 2026-11-11
 
 ## Working rules
 
@@ -519,8 +519,8 @@ Verified:
   deletion refusal, live-subscription refusal, and successful deletion with invite cleanup.
 - `outreach.integration.test.ts` proves an admin can approve under the default policy but is
   refused at approval and send under `OWNER_ONLY`, while the owner can still approve.
-- `npm test` (36 files / 287 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
-  pass.
+- `npm test` (36 files / 287 tests at the time of this slice), `npm run typecheck`,
+  `npm run lint`, and `npm run build` pass.
 
 Residual risk:
 - The worker must be scheduled for retention and purge to run automatically; manual cleanup
@@ -529,10 +529,36 @@ Residual risk:
   and account deletion remain out of scope.
 - Audit records are application-level only; external tamper evidence remains a launch gap.
 
+#### Slice 5 — Workspace ownership transfer (complete, 2026-11-11)
+
+Build (done):
+1. `transferWorkspaceOwnership` in `src/server/services/team.ts`: owner-only, requires the
+   current password, refuses self-transfer, missing members, viewers, and soft-deleted
+   workspaces. A transaction locks the workspace, re-checks the owner and target roles, moves
+   `ownerId`, demotes the former owner to `ADMIN`, promotes the target to `OWNER`, and writes
+   `workspace.ownership_transferred` with previous and next owner identities.
+2. `transferOwnershipAction` with the `ownershipTransfer` rate limit (3/hour); success
+   redirects to `/settings?ownership=transferred`, where a notice explains the new role.
+3. `/settings` "Workspace ownership" card lists eligible members and admins only, with the
+   password confirmation and a warning that billing stays attached to the workspace.
+
+Verified:
+- `team.integration.test.ts` covers admin/self/viewer/missing-member refusals, wrong-password
+  refusal, deleted-workspace refusal, successful atomic transfer with audit metadata, and the
+  former owner losing the ability to transfer again.
+- `npm test` (36 files / 290 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Residual risk:
+- The transfer is immediate rather than invitation-based; the password re-check is the only
+  confirmation. Billing responsibility moves with the workspace without a Razorpay account
+  hand-off check.
+- Account-level deletion remains out of scope; owners delete workspaces individually.
+
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an
    extra-workspace creation flow, so the limit can only be displayed.
-2. Account-level ownership transfer and account deletion.
+2. Account-level deletion (not workspace-level) remains.
 3. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
    monitoring/alerting, worker scheduling, and the Prisma major upgrade.
 

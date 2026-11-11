@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
-import { hashPassword } from "@/lib/auth/password";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { canManageTeam, roleAtLeast, type WorkspaceRole } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { sendInviteEmail, type EmailResult } from "@/lib/email/send";
@@ -265,6 +265,142 @@ export async function revokeInvite(input: {
   });
 
   return { ok: true };
+}
+
+/**
+ * Hands workspace ownership to another member. The current owner re-enters their
+ * password, the target must already be a member with a non-viewer role, and both
+ * memberships are rewritten in the same transaction that moves ownerId. Billing
+ * stays attached to the workspace, so the new owner becomes responsible for it.
+ */
+export async function transferWorkspaceOwnership(input: {
+  workspaceId: string;
+  actorId: string;
+  targetUserId: string;
+  password: string;
+  ip?: string;
+  userAgent?: string;
+}): Promise<{ ok: true; newOwnerName: string } | TeamFailure> {
+  const actor = await db.membership.findUnique({
+    where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.actorId } },
+    include: {
+      user: { select: { name: true, email: true, passwordHash: true } },
+      workspace: { select: { id: true, name: true, ownerId: true, deletedAt: true } },
+    },
+  });
+  if (!actor || actor.workspace.deletedAt) {
+    return { ok: false, code: "NOT_FOUND", message: "Workspace not found." };
+  }
+  if (!roleAtLeast(actor.role, "OWNER")) {
+    return {
+      ok: false,
+      code: "FORBIDDEN",
+      message: "Only the workspace owner can transfer ownership.",
+    };
+  }
+  if (input.targetUserId === input.actorId) {
+    return { ok: false, code: "INVALID", message: "You already own this workspace." };
+  }
+
+  const target = await db.membership.findUnique({
+    where: {
+      workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId },
+    },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+  if (!target) {
+    return {
+      ok: false,
+      code: "INVALID",
+      message: "Choose a current member of this workspace.",
+    };
+  }
+  if (target.role === "VIEWER") {
+    return {
+      ok: false,
+      code: "INVALID",
+      message: "A viewer cannot become the owner. Change their role to member or admin first.",
+    };
+  }
+
+  if (!(await verifyPassword(input.password, actor.user.passwordHash))) {
+    return { ok: false, code: "INVALID", message: "Current password is incorrect." };
+  }
+
+  return db.$transaction(async (tx) => {
+    await lockWorkspace(tx, input.workspaceId);
+
+    const workspace = await tx.workspace.findFirst({
+      where: { id: input.workspaceId, deletedAt: null },
+      select: { id: true, name: true, ownerId: true },
+    });
+    if (!workspace) {
+      return { ok: false as const, code: "NOT_FOUND" as const, message: "Workspace not found." };
+    }
+
+    const currentActor = await tx.membership.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: input.workspaceId, userId: input.actorId },
+      },
+      select: { role: true },
+    });
+    if (workspace.ownerId !== input.actorId || currentActor?.role !== "OWNER") {
+      return {
+        ok: false as const,
+        code: "CONFLICT" as const,
+        message: "Ownership changed while you were confirming. Reload and try again.",
+      };
+    }
+
+    const currentTarget = await tx.membership.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId },
+      },
+      select: { role: true },
+    });
+    if (!currentTarget || currentTarget.role === "VIEWER") {
+      return {
+        ok: false as const,
+        code: "CONFLICT" as const,
+        message: "That member is no longer eligible to become the owner. Reload and try again.",
+      };
+    }
+
+    await tx.workspace.update({
+      where: { id: workspace.id },
+      data: { ownerId: input.targetUserId },
+    });
+    await tx.membership.update({
+      where: {
+        workspaceId_userId: { workspaceId: input.workspaceId, userId: input.actorId },
+      },
+      data: { role: "ADMIN" },
+    });
+    await tx.membership.update({
+      where: {
+        workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId },
+      },
+      data: { role: "OWNER" },
+    });
+    await tx.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        action: "workspace.ownership_transferred",
+        entityType: "Workspace",
+        entityId: input.workspaceId,
+        metadata: JSON.stringify({
+          workspaceName: workspace.name,
+          previousOwner: { id: input.actorId, email: actor.user.email },
+          nextOwner: { id: target.user.id, email: target.user.email },
+        }),
+        ip: input.ip,
+        userAgent: input.userAgent,
+      },
+    });
+
+    return { ok: true as const, newOwnerName: target.user.name };
+  });
 }
 
 export type InvitePreview =

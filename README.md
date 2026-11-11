@@ -30,7 +30,10 @@ every send waits for a human decision.
 > choose a lead-retention window (soft delete, then permanent purge after a 30-day grace),
 > set outreach approval to admins/owners or owner-only, download a JSON DSAR bundle, run
 > retention cleanup, and soft-delete the workspace after typed confirmation and password
-> re-check. Remaining Phase 5 work is workspace-count enforcement and follow-up agents.
+> re-check. The owner can transfer workspace ownership to another member or admin with a
+> password re-check; roles and ownerId move atomically and the event is audit-logged.
+> Remaining Phase 5 work is workspace-count enforcement, account-level deletion, and
+> follow-up agents.
 > LeadPilot never fabricates leads, contact details, company facts, sources, opens, or
 > replies.
 
@@ -230,6 +233,9 @@ revoking one frees the seat. A new teammate registers from the `/invite/[token]`
 proves ownership of the invited address and marks the email verified; an existing account
 signs in and accepts there instead. The invitee is added only when the signed-in email
 matches the invitation, and every invite, revocation, and acceptance writes an audit entry.
+The owner can hand ownership to another member or admin by selecting them, re-entering their
+current password, and confirming; the transfer rewrites both roles and `ownerId` in one
+transaction, and the former owner stays on as an admin. Viewers cannot become owners.
 
 **Data and compliance** — workspace admins set a retention window (keep until deleted, or
 30/90/180/365 days) that soft-deletes stale leads and permanently purges them after a
@@ -350,7 +356,7 @@ credentials, workspace plan assignment, provider-managed conflicts, feature swit
 block signup, import, or sending, invite permissions, seat reservation, revocation, expiry,
 wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
 contents, workspace-deletion guards, and owner-only approval enforcement. The suite is
-**36 files / 287 tests**. Before shipping any change, also run `npm run lint`,
+**36 files / 290 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

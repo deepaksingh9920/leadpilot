@@ -71,8 +71,9 @@ Trust boundaries:
 - All domain reads and writes go through server services that include the workspace ID.
   Components do not query Prisma directly.
 - Privileged actions have explicit role gates: approving/sending outreach requires
-  `ADMIN`/`OWNER`; billing and admin invitations require `OWNER`; platform administration
-  requires `isSuperAdmin`.
+  `ADMIN`/`OWNER` (or `OWNER` under an owner-only policy); billing, admin invitations, and
+  ownership transfer require `OWNER`; platform administration requires `isSuperAdmin`.
+  Ownership transfer additionally requires the current password and refuses viewer targets.
 - Superadmin status is a platform capability, not a workspace role. `/admin` and its actions
   redirect or refuse non-superadmins before any data is loaded.
 
@@ -117,6 +118,7 @@ errors. Keys are stable because the limiter stores them.
 | `dataExport` | 3 | 1 h | User | Full-workspace DSAR exfiltration |
 | `retentionCleanup` | 5 | 1 h | Workspace + user | Destructive-job abuse |
 | `workspaceDeletion` | 3 | 1 h | Workspace + user | Password-guessing against deletion |
+| `ownershipTransfer` | 3 | 1 h | Workspace + user | Password-guessing against ownership transfer |
 
 Plan entitlements (seats, monthly leads, daily sends, exports, agent runs) are enforced
 separately and atomically in the service layer. Rate limits do not replace plan limits.
@@ -243,7 +245,11 @@ log store) is not implemented and should be considered for regulated customers.
 - Workspace deletion requires the exact workspace name and the owner's current password. It
   is refused while a Razorpay subscription is live, soft-deletes the workspace immediately,
   revokes pending invites, ends the session, and leaves purge to the retention worker after
-  30 days. Account-level deletion and ownership transfer are not implemented.
+  30 days. Account-level deletion is not implemented.
+- Workspace ownership transfer is owner-only and requires the current password. The target
+  must already be a member or admin (never a viewer), and a single transaction moves `ownerId`,
+  demotes the former owner to admin, promotes the target, and audits both identities. Billing
+  stays attached to the workspace, so the new owner inherits it.
 - Outreach approval policy is enforced twice: the UI/actions gate on the workspace policy,
   and the approval/send services re-read the actor's membership and the policy. A direct
   service call by an admin under `OWNER_ONLY` returns `FORBIDDEN`.
@@ -269,7 +275,7 @@ log store) is not implemented and should be considered for regulated customers.
 - `npm run typecheck` — clean.
 - `npm run lint` — clean.
 - `npm run build` — clean; all routes compile and prerender as before.
-- `npm test` — **36 files / 287 tests** pass, including suites for header/CSP values, worker
+- `npm test` - **36 files / 290 tests** pass, including suites for header/CSP values, worker
   constant-time authorization, the rate-limit matrix, compliance settings/retention/export/
   deletion, and owner-only approval enforcement at the service layer.
 - Live dev-server header check on `/login` confirmed CSP, HSTS absence in development,

@@ -18,6 +18,7 @@ import {
   inviteMember,
   registerAndAcceptInvite,
   revokeInvite,
+  transferWorkspaceOwnership,
 } from "@/server/services/team";
 
 export async function inviteMemberAction(
@@ -118,6 +119,61 @@ export async function revokeInviteAction(
 
   revalidatePath("/settings");
   return { status: "success", message: "Invitation revoked. The seat is available again." };
+}
+
+export async function transferOwnershipAction(
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const context = await getAuthContext();
+  if (!context?.workspace) {
+    return { status: "error", message: "Workspace not found. Sign in and try again." };
+  }
+  if (!roleAtLeast(context.role, "OWNER")) {
+    return { status: "error", message: "Only the workspace owner can transfer ownership." };
+  }
+
+  const targetUserId = formString(formData, "targetUserId");
+  const password = formString(formData, "password");
+  if (!targetUserId) {
+    return { status: "error", message: "Choose the member who should become the owner." };
+  }
+  if (!password) {
+    return { status: "error", fieldErrors: { password: ["Enter your current password."] } };
+  }
+
+  const limit = await checkRateLimit(
+    `ownership-transfer:${context.workspace.id}:${context.user.id}`,
+    RATE_LIMITS.ownershipTransfer.limit,
+    RATE_LIMITS.ownershipTransfer.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { status: "error", message: rateLimitMessage(limit.retryAfterSeconds) };
+  }
+
+  const result = await transferWorkspaceOwnership({
+    workspaceId: context.workspace.id,
+    actorId: context.user.id,
+    targetUserId,
+    password,
+    ip: await getClientIp(),
+    userAgent: await getUserAgent(),
+  });
+  if (!result.ok) {
+    return {
+      status: "error",
+      message: result.message,
+      fieldErrors:
+        result.code === "INVALID" && result.message.toLowerCase().includes("password")
+          ? { password: [result.message] }
+          : undefined,
+    };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  revalidatePath("/");
+  redirect("/settings?ownership=transferred");
 }
 
 export async function acceptInviteAction(

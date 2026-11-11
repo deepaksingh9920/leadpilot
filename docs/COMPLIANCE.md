@@ -195,6 +195,9 @@ Implemented in Phase 4B and enforced server-side:
   the service layer (implemented in Phase 5B slice 4).
 - Team invitations and seat limits: admins invite by email, pending invites reserve seats,
   and only the owner can invite an admin (implemented in Phase 5B slice 2).
+- Ownership transfer: the owner hands the workspace to another member or admin with a password
+  re-check; roles and ownerId move together and the event is audit-logged (implemented in
+  Phase 5B slice 5).
 - Sender identity, mailing address, and unsubscribe footer (implemented; address required
   before approval).
 - Billing is owner-only: the settings page shows the current provider status, interval, and

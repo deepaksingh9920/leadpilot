@@ -26,6 +26,7 @@ describe("rate-limit matrix", () => {
     expect(RATE_LIMITS.leadExport.limit).toBeLessThanOrEqual(20);
     expect(RATE_LIMITS.dataExport.limit).toBeLessThanOrEqual(5);
     expect(RATE_LIMITS.workspaceDeletion.limit).toBeLessThanOrEqual(5);
+    expect(RATE_LIMITS.ownershipTransfer.limit).toBeLessThanOrEqual(5);
   });
 
   it("formats the retry hint in whole minutes", () => {
