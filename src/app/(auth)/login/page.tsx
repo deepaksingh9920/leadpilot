@@ -22,6 +22,7 @@ export default async function LoginPage({
   const resetDone = params.reset === "1";
   const verified = params.verified === "1";
   const workspaceDeleted = params.deleted === "1";
+  const accountDeleted = params.account === "deleted";
 
   return (
     <AuthCard
@@ -49,6 +50,12 @@ export default async function LoginPage({
           <Alert tone="info">
             The workspace was deleted and your session ended. Data is permanently purged after
             the 30-day grace period.
+          </Alert>
+        ) : null}
+        {accountDeleted ? (
+          <Alert tone="info">
+            Your account is closed and you have been signed out. Workspace records you created
+            remain with their workspaces under &ldquo;Deleted user&rdquo;.
           </Alert>
         ) : null}
         <LoginForm next={nextParam ? safeNextPath(nextParam) : undefined} />

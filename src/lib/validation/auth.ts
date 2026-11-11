@@ -61,6 +61,14 @@ export const changePasswordSchema = z
     path: ["confirmPassword"],
   });
 
+export const deleteAccountSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1, "Enter your current password."),
+  confirm: z.literal("on", {
+    error: "Confirm that you understand this cannot be undone.",
+  }),
+});
+
 export function safeNextPath(value: string | null | undefined): string {
   if (!value) return "/dashboard";
   if (!value.startsWith("/") || value.startsWith("//")) return "/dashboard";

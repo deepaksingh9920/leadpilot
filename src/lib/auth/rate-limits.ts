@@ -34,6 +34,7 @@ export const RATE_LIMITS = {
   retentionCleanup: { limit: 5, windowSeconds: 60 * 60 },
   workspaceDeletion: { limit: 3, windowSeconds: 60 * 60 },
   ownershipTransfer: { limit: 3, windowSeconds: 60 * 60 },
+  accountDeletion: { limit: 3, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type RateLimitKey = keyof typeof RATE_LIMITS;

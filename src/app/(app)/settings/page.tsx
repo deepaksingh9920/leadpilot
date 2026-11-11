@@ -15,6 +15,7 @@ import { PasswordForm } from "@/components/settings/password-form";
 import { PendingInvites } from "@/components/settings/pending-invites";
 import { TeamInviteForm } from "@/components/settings/team-invite-form";
 import { OwnershipTransferForm } from "@/components/settings/ownership-transfer-form";
+import { DeleteAccountForm } from "@/components/settings/delete-account-form";
 import {
   ComplianceSettingsForm,
   DeleteWorkspaceForm,
@@ -30,6 +31,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { getAccountDeletionState } from "@/server/services/account";
 import { canManageBilling, requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { formatCurrency, formatDate, percentage } from "@/lib/utils";
@@ -75,13 +77,15 @@ export default async function SettingsPage({
   const ownershipTransferred =
     params.ownership === "transferred" && context.role === "ADMIN";
 
-  const [team, usage, suppressedCount, billing, compliance] = await Promise.all([
-    getTeamState(context.workspace.id),
-    getUsageSummary(context.workspace.id),
-    countSuppressions(context.workspace.id),
-    getBillingState(context.workspace.id),
-    getComplianceState(context.workspace.id),
-  ]);
+  const [team, usage, suppressedCount, billing, compliance, accountDeletion] =
+    await Promise.all([
+      getTeamState(context.workspace.id),
+      getUsageSummary(context.workspace.id),
+      countSuppressions(context.workspace.id),
+      getBillingState(context.workspace.id),
+      getComplianceState(context.workspace.id),
+      getAccountDeletionState(context.user.id),
+    ]);
   const { memberships, invites, seatLimit, seatsUsed } = team;
 
   const profile = context.workspace.profile;
@@ -95,6 +99,13 @@ export default async function SettingsPage({
   const canBill = canManageBilling(context.role);
   const canDeleteWorkspace = roleAtLeast(context.role, "OWNER");
   const canTransferOwnership = roleAtLeast(context.role, "OWNER");
+  const accountDeletionBlockedReason = context.user.isSuperAdmin
+    ? "Superadmin accounts must be removed by another platform administrator."
+    : accountDeletion.ownedActiveWorkspaces > 0
+      ? accountDeletion.ownedActiveWorkspaces === 1
+        ? "You own an active workspace. Transfer its ownership or delete it before closing your account."
+        : `You own ${accountDeletion.ownedActiveWorkspaces} active workspaces. Transfer ownership or delete each one before closing your account.`
+      : undefined;
   const ownershipCandidates = memberships
     .filter(
       (membership) =>
@@ -465,6 +476,20 @@ export default async function SettingsPage({
           </div>
         </Card>
       </div>
+
+      <Card id="delete-account">
+        <CardHeader
+          title="Delete account"
+          description="Close your personal account without deleting workspace records."
+          action={<Badge tone="danger">Irreversible</Badge>}
+        />
+        <div className="p-5">
+          <DeleteAccountForm
+            email={context.user.email}
+            blockedReason={accountDeletionBlockedReason}
+          />
+        </div>
+      </Card>
 
       {canTransferOwnership ? (
         <Card id="ownership">

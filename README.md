@@ -31,9 +31,10 @@ every send waits for a human decision.
 > set outreach approval to admins/owners or owner-only, download a JSON DSAR bundle, run
 > retention cleanup, and soft-delete the workspace after typed confirmation and password
 > re-check. The owner can transfer workspace ownership to another member or admin with a
-> password re-check; roles and ownerId move atomically and the event is audit-logged.
-> Remaining Phase 5 work is workspace-count enforcement, account-level deletion, and
-> follow-up agents.
+> password re-check; roles and ownerId move atomically and the event is audit-logged. Any
+> signed-in member can close their own account after transferring or deleting workspaces they
+> own; closure anonymizes the profile and revokes credentials without erasing workspace
+> records. Remaining Phase 5 work is workspace-count enforcement and follow-up agents.
 > LeadPilot never fabricates leads, contact details, company facts, sources, opens, or
 > replies.
 
@@ -252,8 +253,11 @@ approval and send time, so a stale UI or direct call cannot bypass it. Admins ca
 a versioned JSON DSAR bundle of workspace data and audit history, and the owner can delete
 the workspace with typed-name confirmation and a password re-check. Deletion is refused
 while a live Razorpay subscription is attached, revokes access immediately, and purges data
-after 30 days. Export, cleanup, settings changes, and deletion are rate-limited and
-audit-logged.
+after 30 days. A signed-in member can also close their personal account from the same page;
+if they own an active workspace they must transfer or delete it first. Closure anonymizes
+the profile to "Deleted user" and removes credentials, sessions, invitations, and
+memberships without touching workspace records or audit history. Export, cleanup, settings
+changes, and both deletion paths are rate-limited and audit-logged.
 
 **Security** — tenant-scoped queries, role hierarchy (viewer/member/admin/owner), audit
 logs for sensitive actions, server-side rate limits, and a reviewed header set on every
@@ -278,8 +282,9 @@ secret rotation notes, dependency-audit result, and production checklist are in
   stay disabled until real test keys, a webhook secret, and Razorpay plan IDs are supplied.
 - Workspace-count limit enforcement: no account-level billing or extra-workspace creation
   flow exists yet, so the limit is shown but cannot be exercised.
-- Account-level ownership transfer and account deletion. Deletion today is workspace-level;
-  the owner deletes each workspace explicitly.
+- Account deletion is personal and keeps workspace records: a user closes their own account
+  after transferring or deleting any active workspace they own. There is no account-level
+  billing or multi-workspace account model.
 - Postgres deployment, trusted-proxy configuration, monitoring/alerting, and deployment-time
   hardening (see the production checklist in `docs/SECURITY.md`).
 - A strict nonce-based CSP. The current policy is nonce-free because static pages cannot
@@ -362,8 +367,9 @@ idempotency, plan mapping, tenant isolation, downgrade to Free, refusal to trans
 credentials, workspace plan assignment, provider-managed conflicts, feature switches that
 block signup, import, or sending, invite permissions, seat reservation, revocation, expiry,
 wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
-contents, workspace-deletion guards, and owner-only approval enforcement. The suite is
-**37 files / 294 tests**. Before shipping any change, also run `npm run lint`,
+contents, workspace-deletion guards, ownership-transfer guards, account-closure guards and
+anonymization, and owner-only approval enforcement. The suite is
+**38 files / 298 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

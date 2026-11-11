@@ -58,6 +58,9 @@ Trust boundaries:
   creation.
 - Expired sessions are deleted on lookup; disabled users are rejected even with a valid
   token. Changing a password revokes other sessions.
+- Account closure requires the current password and the exact account email, revokes every
+  session, and replaces the password hash with an unknown value. Owners must transfer or
+  delete active workspaces first, and superadmins must be removed by another administrator.
 - Email verification, password reset, and invitations use single-use random tokens stored
   only as SHA-256 hashes. Reset and verification tokens have bounded lifetimes; invitations
   expire after seven days.
@@ -119,6 +122,7 @@ errors. Keys are stable because the limiter stores them.
 | `retentionCleanup` | 5 | 1 h | Workspace + user | Destructive-job abuse |
 | `workspaceDeletion` | 3 | 1 h | Workspace + user | Password-guessing against deletion |
 | `ownershipTransfer` | 3 | 1 h | Workspace + user | Password-guessing against ownership transfer |
+| `accountDeletion` | 3 | 1 h | User | Password-guessing against account closure |
 
 Plan entitlements (seats, monthly leads, daily sends, exports, agent runs) are enforced
 separately and atomically in the service layer. Rate limits do not replace plan limits.
@@ -275,7 +279,7 @@ log store) is not implemented and should be considered for regulated customers.
 - `npm run typecheck` — clean.
 - `npm run lint` — clean.
 - `npm run build` — clean; all routes compile and prerender as before.
-- `npm test` - **37 files / 294 tests** pass, including suites for header/CSP values, worker
+- `npm test` - **38 files / 298 tests** pass, including suites for header/CSP values, worker
   constant-time authorization, the rate-limit matrix, compliance settings/retention/export/
   deletion, and owner-only approval enforcement at the service layer.
 - Live dev-server header check on `/login` confirmed CSP, HSTS absence in development,
@@ -296,6 +300,11 @@ log store) is not implemented and should be considered for regulated customers.
   database `ok`, and provider states only. Unit tests prove a failed database probe degrades
   the report without throwing (the route maps it to `503`) and that no key names, URLs, or
   secrets appear in the payload.
+- Account closure QA with a disposable member account: signed in, typed the account email and
+  password, confirmed the warning, and landed on `/login?account=deleted` with the closure
+  notice. The old credentials were then rejected. The database showed the tombstone email,
+  `disabledAt` set, zero memberships/sessions/tokens, and an `account.deleted` audit entry with
+  the expected counts. No console errors were recorded.
 - Production-mode header values (HSTS and the stricter CSP) are unit-tested but were not
   served by a production build during this pass.
 

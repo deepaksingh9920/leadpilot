@@ -64,9 +64,15 @@ separate and requires its own consent and unsubscribe handling.
 - Data export: an admin can download a versioned JSON bundle of workspace, member, lead,
   campaign, outreach, suppression, import, job, integration, and audit data. The export is
   audit-logged and rate-limited.
-- Account-level deletion and ownership transfer are not implemented; workspaces must be
-  deleted individually by their owner. Document the actual schedule and this limitation in
-  the privacy policy.
+- Ownership transfer: the owner hands the workspace to another member or admin with a password
+  re-check; roles and ownerId move together and the event is audit-logged (implemented in
+  Phase 5B slice 5).
+- Account closure: a signed-in user can close their personal account by typing their email and
+  re-entering their password. Name, email, password, sessions, pending invitations, and
+  memberships are removed; the user row is anonymized to "Deleted user" so workspace records
+  and audit history keep valid references. Workspace owners must transfer ownership or delete
+  their active workspaces first, and superadmins must be removed by another administrator
+  (implemented in Phase 5B slice 6).
 - Backups inherit the same retention window.
 
 ## 4. Outreach requirements
@@ -204,8 +210,10 @@ Implemented in Phase 4B and enforced server-side:
   renewal/end date, and explains when billing is unconfigured (implemented in Phase 5A).
 - Data export and deletion: admins download a JSON DSAR bundle; the owner deletes the
   workspace with typed-name and password confirmation, subject to the 30-day purge and the
-  live-subscription guard (implemented in Phase 5B slice 4). Account-level deletion remains
-  pending.
+  live-subscription guard (implemented in Phase 5B slice 4). A user can also close their own
+  account, which anonymizes the profile and removes credentials, sessions, invitations, and
+  memberships while leaving workspace records attributable to "Deleted user" (implemented in
+  Phase 5B slice 6).
 - Integration disconnection immediately stops provider access.
 - Clear in-product explanations of verification status and source limitations.
 

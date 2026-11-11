@@ -401,7 +401,7 @@ leadpilot/
 │  │  ├─ validation/         # zod schemas
 │  │  └─ utils/
 │  ├─ server/
-│  │  ├─ services/           # workspace, lead, campaign, run, billing, compliance services
+│  │  ├─ services/           # workspace, lead, campaign, run, billing, compliance, team, account services
 │  │  └─ actions/            # "use server" mutations
 │  └─ types/
 ├─ tests/

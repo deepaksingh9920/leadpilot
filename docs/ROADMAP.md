@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 6 verification and hardening in progress — health/readiness probe complete. Phase 5B enforcement, admin, security, compliance, and ownership-transfer work is complete except workspace-count enforcement and account-level deletion · Last updated: 2026-11-11
+Status: Phase 6 verification and hardening in progress — health/readiness probe complete. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-11
 
 ## Working rules
 
@@ -555,11 +555,42 @@ Residual risk:
   hand-off check.
 - Account-level deletion remains out of scope; owners delete workspaces individually.
 
+#### Slice 6 — Account closure (complete, 2026-11-11)
+
+Build (done):
+1. `deleteAccount` in `src/server/services/account.ts`: requires the exact account email and
+   current password, refuses superadmins and owners of active workspaces, and re-checks
+   ownership under a write lock. In one transaction it deletes sessions, email tokens, pending
+   invitations for the address, and memberships; replaces the password hash with an unknown
+   value; anonymizes the row to `deleted+<id>@deleted.invalid` / "Deleted user"; and writes an
+   `account.deleted` audit entry with counts. Workspace records keep their foreign keys.
+2. `deleteAccountAction` with the `accountDeletion` rate limit (3/hour), `destroyCurrentSession`,
+   and a redirect to `/login?account=deleted`.
+3. `/settings` "Delete account" card with the consequences, typed-email and password fields, a
+   required acknowledgement, and an honest blocked state for owners and superadmins.
+
+Verified:
+- `account.integration.test.ts` covers wrong email/password, superadmin refusal, active-owner
+  refusal and success after the workspace is soft-deleted, full anonymization and cleanup of
+  sessions/tokens/invites/memberships, audit metadata, sign-in rejection after closure, a
+  second-deletion refusal, and audit rows surviving closure.
+- Live QA with a disposable member account: closed the account through the form, landed on the
+  login page with the closure notice, confirmed old credentials were rejected, and verified
+  the tombstone row, zero credentials/sessions/memberships, and audit counts in the database.
+- `npm test` (38 files / 298 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+
+Residual risk:
+- Closing an account is irreversible; there is no grace period or export prompt beyond the
+  existing workspace DSAR bundle. Audit IP/user-agent data and records created under the
+  tombstone identity are retained for security and legal obligations.
+- There is no account-level billing model, so closure never needs to reconcile a subscription
+  owned by the person rather than the workspace.
+
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an
    extra-workspace creation flow, so the limit can only be displayed.
-2. Account-level deletion (not workspace-level) remains.
-3. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
+2. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
    monitoring/alerting, worker scheduling, and the Prisma major upgrade.
 
 Acceptance criteria:
