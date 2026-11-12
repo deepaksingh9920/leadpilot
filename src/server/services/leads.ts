@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
+import { containsInsensitive } from "@/lib/db/text-search";
 
 export const LEAD_STATUSES = [
   "NEW",
@@ -76,11 +77,11 @@ export async function getLeadsPage(workspaceId: string, input: LeadsQuery) {
     ...(query
       ? {
           OR: [
-            { companyName: { contains: query } },
-            { domain: { contains: query } },
-            { contactEmail: { contains: query } },
-            { contactName: { contains: query } },
-            { location: { contains: query } },
+            { companyName: containsInsensitive(query) },
+            { domain: containsInsensitive(query) },
+            { contactEmail: containsInsensitive(query) },
+            { contactName: containsInsensitive(query) },
+            { location: containsInsensitive(query) },
           ],
         }
       : {}),

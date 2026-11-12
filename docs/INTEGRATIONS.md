@@ -206,11 +206,12 @@ separate invitation provider or webhook.
 | Variable | Purpose |
 |---|---|
 | `APP_URL` | Canonical URL used in emails and redirects |
-| `DATABASE_URL` | SQLite locally; Postgres in staging/production |
+| `DATABASE_URL` | Local SQLite file; in production, the Neon **pooled** Postgres URL |
+| `DIRECT_DATABASE_URL` | Production-only Neon **direct** URL used by `prisma migrate` |
 | `AUTH_SECRET` | 32+ byte random value for session signing |
-| `INTEGRATION_ENCRYPTION_KEY` | 32-byte base64 key for encrypting stored provider credentials |
-| `WORKER_SECRET` | Bearer secret for internal worker calls |
-| `CRON_SECRET` | Secret expected by the scheduler endpoint |
+| `INTEGRATION_ENCRYPTION_KEY` | Reserved; not read by the current build |
+| `WORKER_SECRET` | Bearer/header secret for `POST /api/worker/run` |
+| `CRON_SECRET` | Bearer secret Vercel Cron sends to `GET /api/cron/worker` |
 | `AGENT_RUNTIME_READY` | Operator switch; execution stays off unless it is exactly `true` |
 | `BOOTSTRAP_ADMIN_EMAIL` | Initial superadmin email (seed only) |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Initial password, change after first login (seed only) |

@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
+import { containsInsensitive } from "@/lib/db/text-search";
 import {
   FEATURE_FLAGS,
   featureSettingKey,
@@ -60,10 +61,10 @@ export async function getAdminWorkspacesPage(input: {
   const where: Prisma.WorkspaceWhereInput = { deletedAt: null };
   if (q) {
     where.OR = [
-      { name: { contains: q } },
-      { slug: { contains: q } },
-      { owner: { name: { contains: q } } },
-      { owner: { email: { contains: q } } },
+      { name: containsInsensitive(q) },
+      { slug: containsInsensitive(q) },
+      { owner: { name: containsInsensitive(q) } },
+      { owner: { email: containsInsensitive(q) } },
     ];
   }
 
@@ -229,7 +230,7 @@ export async function searchAuditLogs(input: AuditSearchInput): Promise<{
 
   const where: Prisma.AuditLogWhereInput = {};
   if (input.workspaceId) where.workspaceId = input.workspaceId;
-  if (action) where.action = { contains: action };
+  if (action) where.action = containsInsensitive(action);
   if (input.from || input.to) {
     where.createdAt = {};
     if (input.from) where.createdAt.gte = input.from;
@@ -237,12 +238,12 @@ export async function searchAuditLogs(input: AuditSearchInput): Promise<{
   }
   if (q) {
     where.OR = [
-      { action: { contains: q } },
-      { entityId: { contains: q } },
-      { metadata: { contains: q } },
-      { actor: { name: { contains: q } } },
-      { actor: { email: { contains: q } } },
-      { workspace: { name: { contains: q } } },
+      { action: containsInsensitive(q) },
+      { entityId: containsInsensitive(q) },
+      { metadata: containsInsensitive(q) },
+      { actor: { name: containsInsensitive(q) } },
+      { actor: { email: containsInsensitive(q) } },
+      { workspace: { name: containsInsensitive(q) } },
     ];
   }
 

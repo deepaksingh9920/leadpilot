@@ -34,7 +34,11 @@ every send waits for a human decision.
 > password re-check; roles and ownerId move atomically and the event is audit-logged. Any
 > signed-in member can close their own account after transferring or deleting workspaces they
 > own; closure anonymizes the profile and revokes credentials without erasing workspace
-> records. Remaining Phase 5 work is workspace-count enforcement and follow-up agents.
+> records. The production deployment path is prepared: a Postgres schema and initial migration
+> sit beside the SQLite development schema with a parity test, Vercel serves the app, Neon
+> hosts Postgres, and a Vercel Cron endpoint drains the worker queue. The Postgres migration
+> and the cron schedule have not yet been exercised against a live database or deployment.
+> Remaining Phase 5 work is workspace-count enforcement and follow-up agents.
 > LeadPilot never fabricates leads, contact details, company facts, sources, opens, or
 > replies.
 
@@ -44,7 +48,7 @@ every send waits for a human decision.
 |---|---|
 | Framework | Next.js 16 (App Router, Turbopack) |
 | UI | React 19, TypeScript strict, Tailwind CSS v4, Recharts, lucide-react |
-| Data | Prisma 6 + SQLite locally (Postgres planned for production) |
+| Data | Prisma 6 + SQLite for local development and tests; Postgres for production |
 | Auth | Custom bcrypt credentials, hashed DB sessions, DB-backed rate limits |
 | Email | Resend adapter for verification, reset, invitations, and approval-gated outreach |
 | Tests | Vitest |
@@ -74,7 +78,8 @@ these are needed to run the current build:
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | `file:./dev.db` for the local SQLite database |
+| `DATABASE_URL` | `file:./dev.db` for the local SQLite database; Neon pooled URL in production |
+| `DIRECT_DATABASE_URL` | Production-only: Neon direct URL used by `prisma migrate` |
 | `AUTH_SECRET` | 32-byte random string used to hash session tokens |
 | `SESSION_COOKIE_NAME` | Session cookie name (default `leadpilot_session`) |
 | `APP_URL` | Absolute app URL, e.g. `http://localhost:3000` |
@@ -106,8 +111,10 @@ configured:
   monthly/yearly Razorpay `plan_id` values are pasted into the admin console. Paid plans
   change only after a verified `POST /api/billing/razorpay` webhook. Without these values
   the workspace stays on Free and no payment method is collected.
-- `WORKER_SECRET` — authenticates `POST /api/worker/run`; the endpoint returns 503 while
-  it is unset.
+- `WORKER_SECRET` — authenticates `POST /api/worker/run` for manual or external
+  schedulers; the endpoint returns 503 while it is unset.
+- `CRON_SECRET` — authenticates `GET /api/cron/worker`, which is what Vercel Cron calls.
+  Set at least one of `WORKER_SECRET` or `CRON_SECRET`; either one enables the worker.
 - `AGENT_RUNTIME_READY` — operator switch for job execution. Keep it `false` until the AI
   and lead-source keys are set; queued jobs do not run while it is false.
 
@@ -138,14 +145,37 @@ the database cannot be reached.
 | Command | What it does |
 |---|---|
 | `npm run dev` | Start the dev server on port 3000 |
-| `npm run build` | Production build |
+| `npm run build` | Production build with the local SQLite client |
+| `npm run vercel-build` | Vercel build: generate the Postgres client, then `next build` |
 | `npm run start` | Serve the production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run test` | Vitest (unit + database integration tests) |
-| `npm run db:migrate` | Create/apply a Prisma migration |
+| `npm run db:migrate` | Create/apply a local SQLite migration |
+| `npm run db:generate:pg` | Generate the Postgres Prisma client |
+| `npm run db:migrate:pg` | Apply Postgres migrations (`prisma migrate deploy`) |
+| `npm run db:migrate:pg:dev` | Create a Postgres migration against a dev database |
 | `npm run db:seed` | Seed plans, agents, and bootstrap admin |
+| `npm run db:seed:pg` | Generate the Postgres client, then seed |
 | `npm run db:studio` | Open Prisma Studio |
+
+## Deployment
+
+Production uses Vercel for the app and worker trigger, Neon for Postgres, and Bluehost only
+for the domain, DNS, and business email. The full pre-flight, migration, DNS, cron, backup,
+rollback, and smoke-test procedure is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+```bash
+# From the repository root with production connection strings exported:
+npm run db:generate:pg
+npm run db:migrate:pg
+npm run db:seed:pg
+```
+
+The production schema is `prisma/postgres/schema.prisma`; local development and tests keep
+using `prisma/schema.prisma` (SQLite). `src/lib/prisma-schema-parity.test.ts` fails if the
+models drift. The Postgres migration has been generated and validated but not yet applied to
+a live database, and Vercel Cron has not been exercised in a deployment.
 
 ## What is implemented
 
@@ -183,7 +213,10 @@ set. Provider or schema failures fail the step honestly with no partial writes.
 
 **Jobs** — a secret-protected worker endpoint atomically claims due jobs with a two-minute
 lease, records each step, retries transient failures with backoff, and supports cancellation.
-Runs reserve plan usage up front and refund it on cancellation or permanent failure.
+`POST /api/worker/run` authenticates with `WORKER_SECRET`; `GET /api/cron/worker`
+authenticates with `CRON_SECRET` and is the Vercel Cron target. Both share one tick service,
+which also runs retention cleanup. Runs reserve plan usage up front and refund it on
+cancellation or permanent failure.
 Execution is gated by `AGENT_RUNTIME_READY` and the configured provider; with no keys, the
 UI and server report the missing configuration instead of simulating a run.
 
@@ -285,8 +318,11 @@ secret rotation notes, dependency-audit result, and production checklist are in
 - Account deletion is personal and keeps workspace records: a user closes their own account
   after transferring or deleting any active workspace they own. There is no account-level
   billing or multi-workspace account model.
-- Postgres deployment, trusted-proxy configuration, monitoring/alerting, and deployment-time
-  hardening (see the production checklist in `docs/SECURITY.md`).
+- Live deployment verification: the Postgres schema, initial migration, and Vercel Cron
+  configuration are committed, but the migration has not been run against Neon and the cron
+  schedule has not been exercised in a deployed environment. Trusted-proxy configuration,
+  monitoring/alerting, and the remaining production checklist items in `docs/SECURITY.md`
+  are still open.
 - A strict nonce-based CSP. The current policy is nonce-free because static pages cannot
   receive per-request nonces, so `'unsafe-inline'` remains a documented residual risk.
 - The Prisma 7 upgrade needed to clear the `deepmerge-ts` advisory reported by
@@ -340,7 +376,8 @@ src/
     services/        Data access and domain services
   test/              Throwaway database fixtures
 prisma/
-  schema.prisma      Full data model
+  schema.prisma      Full data model for local SQLite
+  postgres/          Production Postgres schema and migrations
   seed.ts            Plans, agents, bootstrap admin
 docs/                Architecture, security, roadmap, compliance, integrations
 ```
@@ -369,7 +406,7 @@ block signup, import, or sending, invite permissions, seat reservation, revocati
 wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
 contents, workspace-deletion guards, ownership-transfer guards, account-closure guards and
 anonymization, and owner-only approval enforcement. The suite is
-**38 files / 298 tests**. Before shipping any change, also run `npm run lint`,
+**41 files / 311 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

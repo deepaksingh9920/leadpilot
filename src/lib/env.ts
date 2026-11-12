@@ -71,6 +71,7 @@ export const env = {
   ),
   sentryConfigured: Boolean(optional("SENTRY_DSN")),
   workerSecret: optional("WORKER_SECRET"),
+  cronSecret: optional("CRON_SECRET"),
   agentRuntimeReady: optional("AGENT_RUNTIME_READY") === "true",
   logLevel: optional("LOG_LEVEL") ?? "info",
 };

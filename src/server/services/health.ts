@@ -47,7 +47,9 @@ export const healthConfigFromEnv: HealthConfig = {
   emailConfigured: env.emailConfigured,
   billingConfigured: env.billingConfigured,
   billingWebhooksConfigured: env.billingWebhooksConfigured,
-  workerConfigured: Boolean(env.workerSecret),
+  // Either trigger can drain the queue: Vercel Cron (CRON_SECRET) or the
+  // authenticated POST endpoint (WORKER_SECRET).
+  workerConfigured: Boolean(env.workerSecret || env.cronSecret),
   agentRuntimeReady: env.agentRuntimeReady,
 };
 

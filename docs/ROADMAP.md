@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 6 verification and hardening in progress — health/readiness probe complete. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-11
+Status: Phase 6 verification and hardening in progress — health/readiness probe and the production Postgres/Vercel Cron deployment path are prepared. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-12
 
 ## Working rules
 
@@ -590,8 +590,9 @@ Residual risk:
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an
    extra-workspace creation flow, so the limit can only be displayed.
-2. Remaining hardening for launch: Postgres migration, trusted-proxy configuration,
-   monitoring/alerting, worker scheduling, and the Prisma major upgrade.
+2. Remaining hardening for launch: apply the prepared Postgres migration to Neon,
+   trusted-proxy verification, monitoring/alerting, exercising Vercel Cron, and the Prisma
+   major upgrade.
 
 Acceptance criteria:
 - Test-mode Razorpay upgrade/downgrade/cancel/webhook replay all update entitlements once.
@@ -630,6 +631,51 @@ Residual risk:
 - The probe is unauthenticated and performs one trivial query per request; a production
   deployment should front it with platform rate limiting or cache it at the edge if abused.
 
+#### Slice 2 — Production Postgres and Vercel Cron (prepared, 2026-11-11)
+
+Build (done):
+1. `prisma/postgres/schema.prisma` mirrors the SQLite data model with a Postgres datasource,
+   Neon `directUrl` (`DIRECT_DATABASE_URL`), and `native` + `rhel-openssl-3.0.x` binary
+   targets. `prisma/postgres/migrations/20261111120000_init` is the consolidated initial
+   migration generated with `prisma migrate diff`; the migration was validated, not applied.
+2. `src/lib/prisma-schema-parity.test.ts` fails if the two schemas' models or enums drift,
+   and asserts the provider/URL/binary-target settings.
+3. `src/server/services/worker-tick.ts` is the shared job + retention tick used by both
+   worker routes. `POST /api/worker/run` keeps `WORKER_SECRET`; the new
+   `GET /api/cron/worker` authenticates Vercel Cron with `CRON_SECRET` and has a 60-second
+   `maxDuration`. `vercel.json` schedules it every minute.
+4. `vercel-build` generates the Postgres client before `next build`; `db:generate:pg`,
+   `db:migrate:pg`, `db:migrate:pg:dev`, and `db:seed:pg` cover production operations.
+   Local development and tests still generate and push the SQLite schema.
+5. Search-parity fix for a provider difference: `containsInsensitive` adds Prisma's
+   Postgres-only `mode: "insensitive"` at runtime while leaving SQLite queries unchanged, so
+   lead and admin search keep the same case behavior in both environments.
+6. `docs/DEPLOYMENT.md` documents Neon setup, pooled/direct URLs, migrations, seeding, Vercel
+   build/env/cron, Bluehost DNS without breaking email, Razorpay webhooks, backups/restore,
+   rollback, key rotation, and the post-deploy smoke test. README, architecture, security,
+   and integration docs were updated; `.env.example` gained the production database fields
+   and distinguishes the two worker secrets.
+
+Verified:
+- `npm test` (41 files / 311 tests), `npm run typecheck`, `npm run lint`, `npm run build`, and
+  `npm run vercel-build` pass. The Postgres client generates with the Vercel engine target,
+  and `prisma validate --schema prisma/postgres/schema.prisma` passes.
+- The generated initial migration contains every table, index, and foreign key from the
+  schema. It has **not** been executed against a live Postgres/Neon database, and Vercel Cron
+  has **not** been exercised in a deployment; both are release gates in the runbook.
+- The SQLite client is regenerated after the Vercel build so local development and tests keep
+  using the local schema.
+
+Residual risk:
+- Two schemas can drift despite the parity test if a future change alters provider-specific
+  native types; the test compares declarations, not generated SQL.
+- Postgres `LIKE` behavior differs from SQLite, so search uses a runtime flag; the Postgres
+  branch is type-checked but not exercised by the SQLite integration suite.
+- Vercel Hobby allows only a daily cron, so the committed every-minute schedule requires Pro
+  or an external scheduler.
+- Postgres concurrency (seat locks, usage counters, job leases) is exercised only through
+  SQLite transactions today; a staging run against Neon is still required.
+
 Remaining build:
 1. Full test pass: unit, integration, E2E critical flows, workspace isolation, limits,
    suppression, provider failure modes.
@@ -639,7 +685,8 @@ Remaining build:
 4. Documentation: README, setup, environment reference, deployment guide, runbook,
    backup/restore, incident and key-rotation procedures.
 5. Deployment: Postgres migration, env configuration, cron, webhooks, health checks,
-   smoke test on the deployed URL.
+   smoke test on the deployed URL. Postgres schema/migration, Vercel build, and cron routing
+   are prepared in slice 2; applying them to Neon and exercising cron/webhooks remains.
 
 Acceptance criteria:
 - Clean install from README on a fresh machine succeeds.
@@ -671,7 +718,7 @@ Depends on: Phase 5 and production credentials/domain.
 | Phase 4B outreach safety | Email provider (verified domain) for approval-gated sends and unsubscribe handling |
 | Phase 4B analytics | Provider webhook/event access if you want automatic opened/replied tracking; manual outcome logging works without it |
 | Phase 5 | Razorpay test keys, webhook secret, and monthly/yearly `plan_id` values; confirm plan prices/limits |
-| Phase 6 | Hosting choice and domain; production keys |
+| Phase 6 | Production domain and Bluehost DNS access; Vercel and Neon projects; production keys. Vercel + Neon was chosen; Bluehost keeps DNS/email |
 
 Never paste secrets in chat. I will provide `.env.example` and tell you exactly which
 values to add locally or in the hosting dashboard.

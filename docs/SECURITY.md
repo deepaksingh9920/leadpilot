@@ -178,13 +178,16 @@ styles. Treat this as a post-launch hardening item with browser regression testi
 
 `next.config.ts` also sets `poweredByHeader: false`, removing the `X-Powered-By` hint.
 
-## 8. Worker endpoint
+## 8. Worker and scheduler endpoints
 
-`POST /api/worker/run` is the only job trigger. `src/lib/security/worker-auth.ts` accepts the
-secret as a `Bearer` token or an `x-worker-secret` header, compares it with
-`timingSafeEqual` after an explicit length check, and returns `false` when `WORKER_SECRET` is
-not configured. Missing or wrong secrets therefore produce `401`; an unconfigured secret
-produces `503`. The endpoint rejects methods other than `POST`.
+`POST /api/worker/run` is the manual/external job trigger. `GET /api/cron/worker` is the
+Vercel Cron target; Vercel sends the `CRON_SECRET` value as `Authorization: Bearer …`.
+`src/lib/security/worker-auth.ts` accepts the secret as a `Bearer` token or a matching
+header (`x-worker-secret` or `x-cron-secret`), compares it with `timingSafeEqual` after an
+explicit length check, and returns `false` when the relevant secret is not configured.
+Missing or wrong secrets therefore produce `401`; an unconfigured secret produces `503`.
+The POST endpoint rejects methods other than `POST`; the cron endpoint rejects methods other
+than `GET`. Both call the same tick service, including retention cleanup.
 
 ## 9. Webhook authentication and billing integrity
 
@@ -206,16 +209,17 @@ produces `503`. The endpoint rejects methods other than `POST`.
 - Secrets are read server-side through `src/lib/env.ts`; none are exposed through
   `NEXT_PUBLIC_*` variables or client components.
 - Rotate `AUTH_SECRET` by issuing new sessions (all existing sessions become invalid once
-  their tokens no longer resolve; plan for a sign-in prompt). Rotate `WORKER_SECRET` by
-  updating the scheduler and app together. Rotate Razorpay keys and webhook secret in the
-  provider dashboard, then update both app and webhook configuration before the next event.
+  their tokens no longer resolve; plan for a sign-in prompt). Rotate `WORKER_SECRET` and
+  `CRON_SECRET` by updating the scheduler and app together, then redeploy. Rotate Razorpay
+  keys and webhook secret in the provider dashboard, then update both app and webhook
+  configuration before the next event.
 - Rotate provider keys (AI, Apollo, PDL, Google Places, Resend) in the provider dashboard,
   update the environment, redeploy, and confirm the Integrations page reports the new state.
 - Never paste secrets into chat, tickets, logs, or audit metadata. Audit entries record
   actions and identifiers, not credentials.
-- `INTEGRATION_ENCRYPTION_KEY`, `CRON_SECRET`, and `RATE_LIMIT_WINDOW_SECONDS` appear in
-  `.env.example` but are not read by the current code; do not treat their absence as a
-  misconfiguration, and do not rely on them for protection today.
+- `INTEGRATION_ENCRYPTION_KEY` and `RATE_LIMIT_WINDOW_SECONDS` appear in `.env.example` as
+  reserved placeholders and are not read by the current code; do not rely on them for
+  protection today. `CRON_SECRET` is read by the scheduler endpoint.
 
 ## 11. Audit logging
 
@@ -311,11 +315,14 @@ log store) is not implemented and should be considered for regulated customers.
 ## 15. Production security checklist
 
 - [ ] Serve only over HTTPS and confirm HSTS after the first production deploy.
-- [ ] Put a trusted reverse proxy in front of the app and overwrite `X-Forwarded-For`; the
-      app currently trusts that header for rate-limit keys and audit IPs.
-- [ ] Replace SQLite with Postgres, enable TLS, and restrict network access.
-- [ ] Set `AUTH_SECRET`, `WORKER_SECRET`, and all provider/billing secrets in the hosting
-      secret store; never in the repository.
+- [ ] Confirm the hosting proxy overwrites `X-Forwarded-For`; the app currently trusts that
+      header for rate-limit keys and audit IPs. Vercel is expected to set it, but verify with
+      a spoofed header before launch.
+- [ ] Apply the Postgres schema/migration to Neon with TLS, then remove the SQLite path from
+      any environment that could receive customer data. The migration is prepared but has not
+      been run against a live database.
+- [ ] Set `AUTH_SECRET`, `WORKER_SECRET` or `CRON_SECRET`, and all provider/billing secrets in
+      the hosting secret store; never in the repository.
 - [ ] Confirm `NODE_ENV=production` so Secure cookies, HSTS, and the production CSP apply.
 - [ ] Configure Razorpay webhook delivery to the exact production URL and verify a real
       test event end to end.
@@ -323,7 +330,8 @@ log store) is not implemented and should be considered for regulated customers.
 - [ ] Add monitoring/alerting for rate-limit spikes, failed logins, webhook failures, worker
       failures, and audit-write errors.
 - [ ] Schedule the worker endpoint so retention/purge runs automatically and monitor its
-      counts and failures. Manual cleanup and the worker trigger are the only paths today.
+      counts and failures. `vercel.json` registers `GET /api/cron/worker`, but the schedule
+      has not been exercised and Hobby plans restrict cron frequency.
 - [ ] Document and rehearse the DSAR/export and workspace-deletion runbook, including backup
       expiry, before taking regulated customers.
 - [ ] Schedule the Prisma 7 upgrade to clear the `deepmerge-ts` advisory.

@@ -29,10 +29,10 @@ calling, browser scraping, and sending without approval.
 | Jobs | DB-backed queue (`AgentRun` leases) + protected worker endpoint driven by cron | No extra infrastructure; idempotent retries; upgrade path to Redis/pg-boss |
 | AI | Server-only `LlmProvider` adapter over an OpenAI-compatible API | Swap models/providers without touching business logic |
 | Lead data | `LeadSourceProvider` adapters (licensed APIs + CSV import) | Enforces provenance and terms; no scraping |
-| Email | `EmailProvider` adapter (Resend or SMTP) | Approval-gated sending, unsubscribe handling |
+| Email | `EmailProvider` adapter (Resend) | Approval-gated sending, unsubscribe handling |
 | Billing | Razorpay subscriptions: server-created subscription + hosted `short_url`, signed webhooks | Hosted checkout needs no client checkout script; webhook-driven state is idempotent and auditable |
 | Observability | Structured JSON logs, audit log, `/api/health`, optional Sentry | Debuggable and auditable |
-| Tests | Vitest (unit/integration) + Playwright (critical flows) | Verifies behavior, not just builds |
+| Tests | Vitest unit + database integration tests | Verifies behavior, not just builds |
 
 Node.js LTS 26.13.0 and npm 11.20.0 are installed on the development machine. PowerShell
 execution policy blocks `npm.ps1`; use `npm.cmd` / `npx.cmd` (or
@@ -62,10 +62,10 @@ Next.js (Vercel or Node/Docker)
 ```
 
 Local development uses the same application code with SQLite and the same provider
-adapters. Because real integrations were selected, provider-backed actions are disabled
-with a clear "Integration not configured" state until keys are present. There is no
-production mock/sandbox data path. Automated tests use isolated fixtures that are never
-served in production.
+adapters. Production uses `prisma/postgres/schema.prisma` against Neon. Because real
+integrations were selected, provider-backed actions are disabled with a clear "Integration
+not configured" state until keys are present. There is no production mock/sandbox data path.
+Automated tests use isolated SQLite fixtures that are never served in production.
 
 ## 4. Multi-tenancy and authorization
 
@@ -247,10 +247,11 @@ first. Audit reads are not themselves audited in this slice.
 
 Seats are consumed by memberships and by pending, unexpired invitations. Inviting and
 accepting both run inside a transaction that first performs a no-op update on the workspace
-row. SQLite serializes that write, so a second concurrent transaction counts committed
-members and cannot oversell the plan. The cap is re-checked at acceptance: an invitation
-reserves a seat, but if an admin fills the last seat before it is accepted, acceptance fails
-with `LIMIT` rather than bypassing the plan.
+row. SQLite serializes that write; on Postgres the no-op `UPDATE` takes a row lock until
+commit, so a second concurrent transaction counts committed members and cannot oversell the
+plan. The cap is re-checked at acceptance: an invitation reserves a seat, but if an admin
+fills the last seat before it is accepted, acceptance fails with `LIMIT` rather than
+bypassing the plan.
 
 Invitations store only `sha256(token)`; the raw token exists in the emailed link. They are
 scoped to one workspace and email, are single-use, and expire after seven days. Only
@@ -330,7 +331,10 @@ Detailed rationale and verification live in `docs/SECURITY.md`.
   because static pages cannot receive nonces; `'unsafe-inline'` remains a documented
   residual risk with a strict-CSP path in `docs/SECURITY.md`.
 - Worker: `POST /api/worker/run` requires a constant-time `Bearer`/`x-worker-secret` match
-  and stays disabled (`503`) when `WORKER_SECRET` is unset.
+  against `WORKER_SECRET` and stays disabled (`503`) when it is unset. `GET /api/cron/worker`
+  is the Vercel Cron target, authenticates `Bearer`/`x-cron-secret` against `CRON_SECRET`,
+  and shares the same tick service. Either secret enables the worker; both are reported only
+  as a boolean on `/api/health`.
 - Webhooks: Razorpay HMAC-SHA256 verification over the raw body and idempotent processing via
   `WebhookEvent`; checkout refuses to start without a working activation path.
 - Logging: emails/phones redacted; request IDs; no bodies of auth or billing requests.
@@ -355,6 +359,9 @@ leadpilot/
 ├─ prisma/
 │  ├─ schema.prisma
 │  ├─ migrations/
+│  ├─ postgres/
+│  │  ├─ schema.prisma       # production Postgres schema
+│  │  └─ migrations/         # production migration history
 │  └─ seed.ts                # plans, agent definitions, admin bootstrap
 ├─ public/                   # static assets
 ├─ src/
@@ -420,8 +427,8 @@ leadpilot/
 | Environment | Database | Providers | Purpose |
 |---|---|---|---|
 | Local | SQLite file | Real keys from `.env.local`; actions disabled if absent | Development and manual QA |
-| Preview | Postgres branch | Razorpay test mode, provider test keys | Review before release |
-| Production | Postgres | Live keys | Customers |
+| Preview | Neon Postgres branch | Razorpay test mode, provider test keys | Review before release |
+| Production | Neon Postgres | Live keys | Customers |
 
 All configuration is environment-based; no secrets in source. Plan prices and limits are
 stored in the database and editable by a superadmin, with Razorpay `plan_id` values
@@ -444,8 +451,9 @@ referenced by plan and interval in `PlanProviderPrice`.
 
 - Unit: scoring, ICP matching, plan limit math, suppression matching, provenance
   normalization, CSV parsing, auth token handling.
-- Integration: Prisma repositories and services against a temporary SQLite database;
-  route handlers for auth, leads, exports, approvals, worker ticks.
+- Integration: Prisma repositories and services against a temporary SQLite database; model
+  parity with the production Postgres schema is checked on every test run; route handlers
+  for auth, leads, exports, approvals, worker ticks.
 - End-to-end: signup → onboarding → CSV import → agent run (with a stub provider in the
   test environment only) → lead qualification → draft → approve → suppressed send blocked.
 - Manual: browser walkthrough of every page at desktop and mobile widths.
@@ -455,20 +463,22 @@ referenced by plan and interval in `PlanProviderPrice`.
 ## 14. Deployment
 
 Recommended: Vercel (app + cron) with managed Postgres (Neon/Supabase), Razorpay, and an
-email provider. Alternative: Docker image on a Node host with a reverse proxy; run the
-worker tick from system cron every minute.
+email provider; Bluehost keeps the domain, DNS, and business email. Alternative: Docker image
+on a Node host with a reverse proxy; run the worker tick from system cron every minute.
 
-Release steps: run `prisma migrate deploy`, seed reference data idempotently, verify
-`/api/health`, check webhook signing secrets, and confirm cron is calling the worker with
-`CRON_SECRET`. The Phase 6 deployment guide will contain exact commands and a rollback
-procedure.
+Release steps: run `prisma migrate deploy` with the Postgres schema, seed reference data
+idempotently, verify `/api/health`, check webhook signing secrets, and confirm Vercel Cron is
+calling `GET /api/cron/worker` with `CRON_SECRET`. The exact commands, domain/DNS steps,
+backup/restore drill, rollback, and smoke-test checklist live in `docs/DEPLOYMENT.md`.
+Migration and cron have not yet been executed against a live deployment.
 
 ## 15. Decision log
 
 | Decision | Rationale | Revisit when |
 |---|---|---|
 | Custom auth instead of hosted auth | Workspace roles and superadmin are core; fewer external failure modes | SSO/enterprise demand appears |
-| SQLite locally, Postgres in production | Zero-setup development; production-grade concurrency | Team grows or preview environments need shared DB |
+| SQLite locally, Postgres in production | Zero-setup development; production-grade concurrency; a parity test prevents model drift between the two schemas | Local and production behavior diverge (for example `LIKE` case sensitivity) or team size makes a shared local Postgres worth the setup |
+| Vercel + Neon over Bluehost shared hosting | Bluehost Premium cannot run a persistent Node server or managed Postgres; Vercel provides functions/cron and Neon provides managed Postgres while Bluehost keeps DNS/email | Hosting costs or provider limits change materially |
 | DB-backed job queue | No Redis to operate; jobs survive restarts | Sustained queue depth or sub-minute latency requires Redis |
 | Real providers only, no production demo mode | User requirement; prevents fabricated data reaching customers | Never — test fixtures stay isolated |
 | Human approval mandatory for outreach | Compliance and user trust | Never |

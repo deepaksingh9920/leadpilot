@@ -92,9 +92,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
       {job.status === "QUEUED" ? (
         <Alert tone="info" title="Waiting for the worker">
-          This job is queued. It will execute only when the background worker runs. The worker
-          endpoint is <code className="font-mono text-[11px]">POST /api/worker/run</code> and
-          requires <code className="font-mono text-[11px]">WORKER_SECRET</code>.
+          This job is queued. It will execute only when the background worker runs. The scheduler
+          calls <code className="font-mono text-[11px]">GET /api/cron/worker</code> with{" "}
+          <code className="font-mono text-[11px]">CRON_SECRET</code>; an operator can also call{" "}
+          <code className="font-mono text-[11px]">POST /api/worker/run</code> with{" "}
+          <code className="font-mono text-[11px]">WORKER_SECRET</code>.
         </Alert>
       ) : null}
 
