@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 6 verification and hardening in progress — health/readiness probe and the production Postgres/Vercel Cron deployment path are prepared. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-12
+Status: Phase 6 verification and hardening in progress — health/readiness probe, the production Postgres/Vercel Cron deployment path, and production-mode/search-index QA are complete. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-12
 
 ## Working rules
 
@@ -675,6 +675,36 @@ Residual risk:
   or an external scheduler.
 - Postgres concurrency (seat locks, usage counters, job leases) is exercised only through
   SQLite transactions today; a staging run against Neon is still required.
+
+#### Slice 3 — Production-mode QA and search indexing (complete, 2026-11-12)
+
+Build (done):
+1. `src/app/robots.ts` and `src/app/sitemap.ts` generate crawler directives from `APP_URL`
+   and list only the public pages (`/`, `/features`, `/pricing`).
+2. The authenticated `(app)` layout, the auth layout, and the onboarding page now send
+   `robots: noindex, nofollow`; the unsubscribe page already did. Workspace data and
+   token-bearing auth/invite URLs therefore stay out of search results even when a crawler
+   ignores `robots.txt`.
+3. The root `<html>` sets `data-scroll-behavior="smooth"` to match the existing CSS and
+   silence Next.js's development warning.
+
+Verified:
+- `npm test` (42 files / 314 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
+- Production `next start`: `/robots.txt` and `/sitemap.xml` return `200`; `/api/health`
+  returns `200` with database `ok` and worker `configured`; HSTS, CSP, `X-Frame-Options`,
+  `X-Content-Type-Options`, and `Permissions-Policy` are present; unauthenticated cron and
+  worker calls return `401`; `GET /api/worker/run` returns `405` with `Allow: POST`.
+- Lighthouse accessibility, best-practices, and SEO each score `1.0` on `/`, `/dashboard`,
+  `/leads`, `/settings`, and `/admin`, with no console errors and no horizontal overflow on
+  the tested pages.
+- `/dashboard` and `/login` render `noindex, nofollow`; `/` and `/pricing` remain
+  `index, follow`.
+
+Residual risk:
+- Lighthouse is automated. A keyboard-only pass, screen-reader check, and 390px mobile QA are
+  still manual and outstanding.
+- `robots.txt` is advisory; the `noindex` metadata is the enforced control for private pages.
 
 Remaining build:
 1. Full test pass: unit, integration, E2E critical flows, workspace isolation, limits,

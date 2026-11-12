@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
+
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { env } from "@/lib/env";
 import { Sidebar } from "@/components/app/sidebar";
 import { Topbar } from "@/components/app/topbar";
 import { ResendVerificationButton } from "@/components/app/resend-verification-button";
+
+// Workspace screens contain customer data and must never appear in search results.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const context = await requireWorkspace();

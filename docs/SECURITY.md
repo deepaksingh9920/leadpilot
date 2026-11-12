@@ -309,8 +309,17 @@ log store) is not implemented and should be considered for regulated customers.
   notice. The old credentials were then rejected. The database showed the tombstone email,
   `disabledAt` set, zero memberships/sessions/tokens, and an `account.deleted` audit entry with
   the expected counts. No console errors were recorded.
-- Production-mode header values (HSTS and the stricter CSP) are unit-tested but were not
-  served by a production build during this pass.
+- Production-mode `next start` on a local port served HSTS (`max-age=63072000;
+  includeSubDomains; preload`), the production CSP, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Permissions-Policy`, COOP/CORP, and
+  `X-DNS-Prefetch-Control: off` on both the landing page and `/api/health`. The health probe
+  returned `200`, and unauthenticated cron/worker calls returned `401` while `GET
+  /api/worker/run` returned `405` with `Allow: POST`.
+- Lighthouse scored `1.0` for accessibility, best practices, and SEO on `/`, `/dashboard`,
+  `/leads`, `/settings`, and `/admin` with no console errors. Private screens render
+  `noindex, nofollow`; `robots.txt` and `sitemap.xml` return `200` and list only public pages.
+  This is an automated audit: keyboard-only and screen-reader checks remain manual.
+- The 390px mobile QA pass is still outstanding; only desktop-width pages were checked.
 
 ## 15. Production security checklist
 

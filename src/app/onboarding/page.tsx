@@ -8,7 +8,10 @@ import { getSession } from "@/lib/auth/session";
 import { getAuthContext } from "@/lib/auth/workspace";
 import { logoutAction } from "@/server/actions/auth";
 
-export const metadata = { title: "Set up your workspace" };
+export const metadata = {
+  title: "Set up your workspace",
+  robots: { index: false, follow: false },
+};
 
 export default async function OnboardingPage() {
   const session = await getSession();

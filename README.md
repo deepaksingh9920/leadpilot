@@ -26,7 +26,9 @@ every send waits for a human decision.
 > activates only from a signature-verified, idempotent webhook. Security hardening now
 > centralizes every rate-limit policy, applies a reviewed CSP/headers set on every route,
 > authenticates the worker in constant time, and documents the threat model and residual
-> risks in `docs/SECURITY.md`. Compliance controls are now enforced too: workspace admins
+> risks in `docs/SECURITY.md`. Public pages expose a generated `robots.txt` and `sitemap.xml`;
+> workspace, admin, auth, onboarding, invitation, and unsubscribe screens send `noindex` so
+> customer data and token-bearing URLs stay out of search results. Compliance controls are now enforced too: workspace admins
 > choose a lead-retention window (soft delete, then permanent purge after a 30-day grace),
 > set outreach approval to admins/owners or owner-only, download a JSON DSAR bundle, run
 > retention cleanup, and soft-delete the workspace after typed confirmation and password
@@ -181,7 +183,8 @@ a live database, and Vercel Cron has not been exercised in a deployment.
 
 **Public site** — landing, product/agent overview, security model, and pricing read plans
 and agents from the database. Marketing pages are rendered dynamically so admin plan
-edits appear immediately.
+edits appear immediately. `robots.txt` and `sitemap.xml` are generated from `APP_URL` and
+list only `/`, `/features`, and `/pricing`.
 
 **Accounts** — signup, login, logout, email verification, forgot/reset password, hashed
 sessions, per-IP/per-account rate limits, and audit logging. Email flows report clearly
@@ -406,7 +409,7 @@ block signup, import, or sending, invite permissions, seat reservation, revocati
 wrong-email refusal, new-account registration, retention soft-delete/purge, DSAR export
 contents, workspace-deletion guards, ownership-transfer guards, account-closure guards and
 anonymization, and owner-only approval enforcement. The suite is
-**41 files / 311 tests**. Before shipping any change, also run `npm run lint`,
+**42 files / 314 tests**. Before shipping any change, also run `npm run lint`,
 `npm run typecheck`, and `npm run build`.
 
 ## A note on data ethics

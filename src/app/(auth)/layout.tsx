@@ -3,6 +3,11 @@ import { ArrowLeft, BadgeCheck, Lock, ScrollText } from "lucide-react";
 
 import { Logo } from "@/components/ui/logo";
 
+// Auth screens include invitation and reset links with tokens; keep them out of search.
+export const metadata = {
+  robots: { index: false, follow: false },
+};
+
 const points = [
   { icon: BadgeCheck, text: "Source-linked leads and field-level verification" },
   { icon: Lock, text: "Human approval required before any email is sent" },
