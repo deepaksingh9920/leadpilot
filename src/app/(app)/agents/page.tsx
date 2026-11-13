@@ -15,8 +15,9 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { db } from "@/lib/db";
+import { getAgentRuntimeStatus } from "@/lib/agents/runtime";
 import { requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
-import { getAgentStatus } from "@/server/services/providers";
+import { getProviderCapabilities } from "@/server/services/providers";
 import { toggleAgentAction } from "@/server/actions/agents";
 
 export const metadata = { title: "Agents" };
@@ -58,6 +59,12 @@ export default async function AgentsPage() {
 
   const allowed = new Set(planAgents.map((item) => item.agentKey));
   const configMap = new Map(configs.map((config) => [config.agentKey, config]));
+  const capabilities = await getProviderCapabilities(context.workspace.id);
+  const runtimeMap = new Map(
+    agents.map(
+      (agent) => [agent.key, getAgentRuntimeStatus(agent.key, capabilities)] as const,
+    ),
+  );
   const canManage = roleAtLeast(context.role, "ADMIN");
   const enabledCount = agents.filter(
     (agent) => allowed.has(agent.key) && configMap.get(agent.key)?.enabled,
@@ -87,7 +94,12 @@ export default async function AgentsPage() {
           const included = allowed.has(agent.key);
           const config = configMap.get(agent.key);
           const enabled = included && Boolean(config?.enabled);
-          const runtime = getAgentStatus(agent.key);
+          const runtime = runtimeMap.get(agent.key) ?? {
+            runnable: false as const,
+            provider: null,
+            code: "UNKNOWN_AGENT" as const,
+            message: "Runtime status is unavailable.",
+          };
 
           return (
             <Card key={agent.key} className="flex flex-col p-5">

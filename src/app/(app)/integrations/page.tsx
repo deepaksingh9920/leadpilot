@@ -1,152 +1,129 @@
 import Link from "next/link";
 import {
-  Bot,
-  CheckCircle2,
   CreditCard,
   Database,
   Mail,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
+import { IntegrationCredentialsForm } from "@/components/integrations/credentials-form";
+import { RemoveIntegrationButton } from "@/components/integrations/remove-credentials";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
-import { db } from "@/lib/db";
 import { requireWorkspace } from "@/lib/auth/workspace";
+import { canManageIntegrations } from "@/lib/auth/roles";
 import { env } from "@/lib/env";
-import { PROVIDER_TERMS_URLS } from "@/lib/providers/types";
+import { PROVIDER_LABELS, PROVIDER_TERMS_URLS } from "@/lib/providers/types";
+import {
+  getIntegrationOverview,
+  type ReadResult,
+} from "@/server/services/integrations";
 import { getActiveLeadSource } from "@/server/services/lead-sources";
 
 export const metadata = { title: "Integrations" };
 
-type ProviderCard = {
-  name: string;
-  description: string;
-  envKeys: string[];
-  configured: boolean;
-  note: string;
-  active?: boolean;
-  termsUrl?: string;
+type StatusTone = "success" | "warning" | "neutral" | "outline";
+
+type Status = {
+  tone: StatusTone;
+  label: string;
+  detail: string | null;
+  hasStored: boolean;
 };
+
+function formatDate(value: Date): string {
+  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(value);
+}
+
+function storedStatus(
+  read: ReadResult<unknown>,
+  fallbackConfigured: boolean,
+): Status {
+  if (read.state === "ok") {
+    return {
+      tone: "success",
+      label: "Workspace key",
+      detail: `Saved ${formatDate(read.updatedAt)}${
+        read.accountLabel ? ` · ${read.accountLabel}` : ""
+      }`,
+      hasStored: true,
+    };
+  }
+  if (read.state === "error") {
+    return {
+      tone: "warning",
+      label: "Needs attention",
+      detail: read.message,
+      hasStored: true,
+    };
+  }
+  if (fallbackConfigured) {
+    return {
+      tone: "outline",
+      label: "Server default",
+      detail: "Using the deployment's environment variables.",
+      hasStored: false,
+    };
+  }
+  return { tone: "neutral", label: "Not configured", detail: null, hasStored: false };
+}
 
 export default async function IntegrationsPage() {
   const context = await requireWorkspace();
   if (!context.workspace) return null;
 
-  const activeSource = getActiveLeadSource();
+  const [overview, activeSource] = await Promise.all([
+    getIntegrationOverview(context.workspace.id),
+    getActiveLeadSource(context.workspace.id),
+  ]);
 
-  const records = await db.integration.findMany({
-    where: { workspaceId: context.workspace.id },
-    orderBy: { provider: "asc" },
-  });
+  const canManage = canManageIntegrations(context.role);
+  const encryptionReady = overview.encryptionConfigured;
 
-  const groups: { title: string; icon: typeof Bot; blurb: string; providers: ProviderCard[] }[] =
-    [
-      {
-        title: "AI provider",
-        icon: Sparkles,
-        blurb:
-          "Powers research summaries, qualification reasons, and outreach drafts. Any OpenAI-compatible endpoint works.",
-        providers: [
-          {
-            name: "OpenAI-compatible API",
-            description: "Model calls are made server-side with your configured key.",
-            envKeys: ["AI_API_KEY", "AI_MODEL", "AI_BASE_URL"],
-            configured: env.aiConfigured,
-            note: "Set AI_TIMEOUT_MS and AI_MAX_OUTPUT_TOKENS to control cost and latency.",
-          },
-        ],
-      },
-      {
-        title: "Lead sources",
-        icon: Database,
-        blurb:
-          "Only contracted APIs and licensed datasets. Each source must permit prospecting use.",
-        providers: [
-          {
-            name: "Apollo",
-            description: "Company and contact search through Apollo's licensed API.",
-            envKeys: ["APOLLO_API_KEY"],
-            configured: Boolean(env.apolloApiKey),
-            active: activeSource.ok && activeSource.source.provider === "apollo",
-            termsUrl: PROVIDER_TERMS_URLS.apollo,
-            note: "Selected with PRIMARY_LEAD_SOURCE=apollo. Review your Apollo plan's data-use terms before enabling outreach.",
-          },
-          {
-            name: "People Data Labs",
-            description: "Company enrichment from a licensed dataset.",
-            envKeys: ["PDL_API_KEY"],
-            configured: Boolean(env.pdlApiKey),
-            active: activeSource.ok && activeSource.source.provider === "pdl",
-            termsUrl: PROVIDER_TERMS_URLS.pdl,
-            note: "Selected with PRIMARY_LEAD_SOURCE=pdl. Records keep the PDL dataset reference and retrieval timestamp.",
-          },
-          {
-            name: "Google Places",
-            description: "Business listings for local and regional prospecting.",
-            envKeys: ["GOOGLE_PLACES_API_KEY"],
-            configured: Boolean(env.googlePlacesApiKey),
-            active: activeSource.ok && activeSource.source.provider === "google_places",
-            termsUrl: PROVIDER_TERMS_URLS.google_places,
-            note: "Selected with PRIMARY_LEAD_SOURCE=google_places. Business listings only; place details must be cached according to Google's terms.",
-          },
-          {
-            name: "CSV import",
-            description: "Import data you already have the right to use.",
-            envKeys: [],
-            configured: true,
-            note: "Available now: upload a file from Lead management → Import. The server re-parses and validates every row, and duplicates are skipped.",
-          },
-        ],
-      },
-      {
-        title: "Email delivery",
-        icon: Mail,
-        blurb:
-          "Approved messages are sent through a configured provider. Without one, messages stay queued.",
-        providers: [
-          {
-            name: "Resend",
-            description: "Transactional delivery API with message IDs stored per send.",
-            envKeys: ["RESEND_API_KEY", "EMAIL_FROM"],
-            configured: env.emailConfigured,
-            note: "Verification and password-reset emails also use this provider.",
-          },
-          {
-            name: "SMTP",
-            description: "Bring your own SMTP relay.",
-            envKeys: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS"],
-            configured: false,
-            note: "The SMTP adapter is planned. The Resend adapter is the implemented path.",
-          },
-        ],
-      },
-      {
-        title: "Billing",
-        icon: CreditCard,
-        blurb:
-          "Subscription checkout and plan changes. Until configured, only the Free plan is created.",
-        providers: [
-          {
-            name: "Razorpay",
-            description: "Subscription billing with signature-verified, idempotent webhooks.",
-            envKeys: [
-              "RAZORPAY_KEY_ID",
-              "RAZORPAY_KEY_SECRET",
-              "RAZORPAY_WEBHOOK_SECRET",
-            ],
-            configured: env.billingWebhooksConfigured,
-            note: "Checkout creates a Razorpay subscription and redirects to its hosted payment page. Paid plans activate only after a verified webhook.",
-          },
-        ],
-      },
-    ];
+  const aiStatus = storedStatus(overview.ai, env.aiConfigured);
+  const leadStatus = storedStatus(
+    overview.leadSource,
+    env.leadSourceConfigured,
+  );
+  const emailStatus = storedStatus(overview.email, env.emailConfigured);
 
-  const configuredCount = groups
-    .flatMap((group) => group.providers)
-    .filter((provider) => provider.configured).length;
-  const totalCount = groups.flatMap((group) => group.providers).length;
+  const configuredCount = [aiStatus, leadStatus, emailStatus].filter(
+    (status) => status.label === "Workspace key" || status.label === "Server default",
+  ).length;
+
+  const aiDefaults =
+    overview.ai.state === "ok"
+      ? {
+          model: overview.ai.credentials.model,
+          baseUrl: overview.ai.credentials.baseUrl,
+        }
+      : { model: env.aiModel, baseUrl: undefined };
+
+  const leadDefaults = {
+    leadSource:
+      overview.leadSource.state === "ok"
+        ? overview.leadSource.credentials.provider
+        : env.primaryLeadSource === "apollo" ||
+            env.primaryLeadSource === "pdl" ||
+            env.primaryLeadSource === "google_places"
+          ? env.primaryLeadSource
+          : ("apollo" as const),
+    baseUrl:
+      overview.leadSource.state === "ok"
+        ? overview.leadSource.credentials.baseUrl
+        : undefined,
+  };
+
+  const emailDefaults =
+    overview.email.state === "ok"
+      ? {
+          from: overview.email.credentials.from,
+          replyTo: overview.email.credentials.replyTo,
+        }
+      : { from: env.emailFrom, replyTo: env.emailReplyTo };
 
   return (
     <div className="space-y-6">
@@ -156,27 +133,42 @@ export default async function IntegrationsPage() {
             Integrations
           </h1>
           <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">
-            Provider credentials are configured server-side by the workspace operator. Status
-            below reflects the actual environment — nothing is simulated.
+            Add your own provider keys here. They are stored encrypted for this workspace
+            and never shown again. Deployment environment variables are used only when a
+            workspace has not saved its own key.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Badge tone={configuredCount > 0 ? "success" : "warning"}>
-            {configuredCount} of {totalCount} configured
+            {configuredCount} of 3 configured
           </Badge>
         </div>
       </div>
 
-      <Alert tone="info" title="How configuration works in this build">
-        LeadPilot reads provider credentials from the server environment (for example,
-        <code className="mx-1 rounded bg-white/60 px-1 py-0.5 text-[11px]">
-          APOLLO_API_KEY
-        </code>
-        ). <code className="mx-1 rounded bg-white/60 px-1 py-0.5 text-[11px]">PRIMARY_LEAD_SOURCE</code>
-        chooses which configured lead-source API is active. When exactly one API key is present
-        it is used automatically; multiple keys without an explicit choice fail closed. CSV import
-        is always available. Nothing falls back to demo data.
-      </Alert>
+      {!encryptionReady ? (
+        <Alert tone="warning" title="Credential storage is not enabled on this deployment">
+          An operator must set <code>INTEGRATION_ENCRYPTION_KEY</code> (at least 32
+          characters) in the server environment and redeploy. Generate one with{" "}
+          <code>node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64url&apos;))&quot;</code>
+          . Until then, saved keys cannot be encrypted or read, and the forms stay disabled.
+        </Alert>
+      ) : null}
+
+      {!canManage ? (
+        <Alert tone="info" title="Read-only for your role">
+          Ask a workspace owner or admin to add or replace provider credentials. You can still
+          see which integrations are active.
+        </Alert>
+      ) : null}
+
+      {canManage && encryptionReady ? (
+        <Alert tone="info" title="How saved keys behave">
+          A workspace key overrides the deployment default for that provider. Removing it
+          restores the default. Keys are write-only: LeadPilot never sends a stored value back
+          to the browser. Account emails (verification, password reset, invitations) still use
+          the deployment sender.
+        </Alert>
+      ) : null}
 
       <Card className="p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -189,7 +181,9 @@ export default async function IntegrationsPage() {
             </p>
             <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-muted">
               {activeSource.ok
-                ? "Lead Finder sends your ICP filters to this provider and stores only the fields it returns, with source and retrieval metadata."
+                ? activeSource.source.credentialSource === "workspace"
+                  ? "Using this workspace's saved key. Lead Finder sends your ICP filters to this provider and stores only the fields it returns, with source and retrieval metadata."
+                  : "Using the deployment's environment configuration. Save a workspace key below to use your own provider account instead."
                 : activeSource.message}
             </p>
             {activeSource.ok ? (
@@ -210,107 +204,235 @@ export default async function IntegrationsPage() {
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {groups.map((group) => (
-          <Card key={group.title}>
-            <CardHeader
-              title={
-                <span className="flex items-center gap-2">
-                  <group.icon className="size-4 text-brand" aria-hidden="true" />
-                  {group.title}
-                </span>
-              }
-              description={group.blurb}
-            />
-            <ul className="divide-y divide-line">
-              {group.providers.map((provider) => (
-                <li key={provider.name} className="px-5 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-ink">{provider.name}</p>
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-                        {provider.description}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {provider.active ? <Badge tone="brand">Active</Badge> : null}
-                      {provider.configured ? (
-                        <Badge tone="success">
-                          <CheckCircle2 className="size-3" aria-hidden="true" />
-                          Configured
-                        </Badge>
-                      ) : (
-                        <Badge tone="neutral">Not configured</Badge>
-                      )}
-                    </div>
-                  </div>
+        <Card>
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <Sparkles className="size-4 text-brand" aria-hidden="true" />
+                AI provider
+              </span>
+            }
+            description="Powers research summaries, qualification reasons, and outreach drafts. Any OpenAI-compatible endpoint works."
+            action={<Badge tone={aiStatus.tone}>{aiStatus.label}</Badge>}
+          />
 
-                  {provider.envKeys.length > 0 ? (
-                    <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      {provider.envKeys.map((key) => (
-                        <code
-                          key={key}
-                          className="rounded-md bg-canvas px-1.5 py-0.5 text-[10px] font-medium text-ink-soft ring-1 ring-line"
-                        >
-                          {key}
-                        </code>
-                      ))}
-                    </div>
-                  ) : null}
+          <div className="px-5 py-4">
+            <p className="text-[13px] font-semibold text-ink">OpenAI-compatible API</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+              Model calls are made server-side with your saved key. Set{" "}
+              <code>AI_TIMEOUT_MS</code> and <code>AI_MAX_OUTPUT_TOKENS</code> in the
+              deployment environment to control cost and latency.
+            </p>
+            {aiStatus.detail ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
+                {aiStatus.detail}
+              </p>
+            ) : null}
 
-                  <p className="mt-2 text-[10px] leading-relaxed text-muted">{provider.note}</p>
-                  {provider.termsUrl ? (
-                    <a
-                      href={provider.termsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-flex text-[10px] font-semibold text-brand hover:text-brand-dark"
-                    >
-                      Data-use terms
-                    </a>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ))}
+            {canManage && encryptionReady ? (
+              <>
+                <IntegrationCredentialsForm
+                  provider="AI"
+                  hasStored={aiStatus.hasStored}
+                  defaults={aiDefaults}
+                />
+                {aiStatus.hasStored ? (
+                  <RemoveIntegrationButton provider="AI" label="AI" />
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <Database className="size-4 text-brand" aria-hidden="true" />
+                Lead sources
+              </span>
+            }
+            description="Only contracted APIs and licensed datasets. Each source must permit prospecting use."
+            action={<Badge tone={leadStatus.tone}>{leadStatus.label}</Badge>}
+          />
+
+          <div className="px-5 py-4">
+            <p className="text-[13px] font-semibold text-ink">Licensed lead API</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+              Choose Apollo, People Data Labs, or Google Places. A workspace key takes
+              precedence over the deployment default; CSV import stays available either way.
+            </p>
+            {leadStatus.detail ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
+                {leadStatus.detail}
+              </p>
+            ) : null}
+
+            {overview.leadSource.state === "ok" ? (
+              <a
+                href={PROVIDER_TERMS_URLS[overview.leadSource.credentials.provider]}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex text-[11px] font-semibold text-brand hover:text-brand-dark"
+              >
+                Data-use terms for{" "}
+                {PROVIDER_LABELS[overview.leadSource.credentials.provider]}
+              </a>
+            ) : null}
+
+            {canManage && encryptionReady ? (
+              <>
+                <IntegrationCredentialsForm
+                  provider="LEAD_SOURCE"
+                  hasStored={leadStatus.hasStored}
+                  defaults={leadDefaults}
+                />
+                {leadStatus.hasStored ? (
+                  <RemoveIntegrationButton provider="LEAD_SOURCE" label="lead-source" />
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          <div className="border-t border-line px-5 py-3">
+            <p className="text-[11px] leading-relaxed text-muted">
+              Already have data you are allowed to use?{" "}
+              <Link href="/leads/import" className="font-semibold text-brand">
+                Import a CSV
+              </Link>{" "}
+              — no provider key needed.
+            </p>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <Mail className="size-4 text-brand" aria-hidden="true" />
+                Email delivery
+              </span>
+            }
+            description="Approved messages are sent through the configured account. Without one, messages stay queued."
+            action={<Badge tone={emailStatus.tone}>{emailStatus.label}</Badge>}
+          />
+
+          <div className="px-5 py-4">
+            <p className="text-[13px] font-semibold text-ink">Resend</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+              Transactional delivery with message IDs stored per send. The sender address
+              must be on a domain verified in the same Resend account.
+            </p>
+            {emailStatus.detail ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
+                {emailStatus.detail}
+              </p>
+            ) : null}
+
+            <p className="mt-2 text-[10px] leading-relaxed text-muted">
+              SMTP is planned but not implemented. Verification, reset, and invitation
+              emails use the deployment sender even when a workspace key is saved.
+            </p>
+
+            {canManage && encryptionReady ? (
+              <>
+                <IntegrationCredentialsForm
+                  provider="EMAIL"
+                  hasStored={emailStatus.hasStored}
+                  defaults={emailDefaults}
+                />
+                {emailStatus.hasStored ? (
+                  <RemoveIntegrationButton provider="EMAIL" label="email" />
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <CreditCard className="size-4 text-brand" aria-hidden="true" />
+                Billing
+              </span>
+            }
+            description="Subscription checkout and plan changes. Until configured, only the Free plan is created."
+            action={
+              <Badge tone={env.billingWebhooksConfigured ? "success" : "neutral"}>
+                {env.billingWebhooksConfigured ? "Configured" : "Not configured"}
+              </Badge>
+            }
+          />
+
+          <div className="px-5 py-4">
+            <p className="text-[13px] font-semibold text-ink">Razorpay</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+              Billing stays deployment-level: Razorpay verifies a webhook signature before
+              the app knows which workspace is involved, so keys and the webhook secret
+              cannot be per-workspace.
+            </p>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted">
+              Configure <code>RAZORPAY_KEY_ID</code>, <code>RAZORPAY_KEY_SECRET</code>, and{" "}
+              <code>RAZORPAY_WEBHOOK_SECRET</code> in the deployment environment, then map
+              monthly/yearly plan IDs in{" "}
+              <Link href="/admin" className="font-semibold text-brand">
+                Admin → Plans
+              </Link>
+              .
+            </p>
+          </div>
+        </Card>
       </div>
 
       <Card>
         <CardHeader
-          title="Workspace connection records"
-          description="Stored per-workspace integration state, separate from server credentials."
-          action={<Badge tone="outline">{records.length} records</Badge>}
+          title={
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="size-4 text-brand" aria-hidden="true" />
+              How credentials are stored
+            </span>
+          }
+          action={<Badge tone={encryptionReady ? "success" : "warning"}>
+            {encryptionReady ? "AES-256-GCM" : "Storage disabled"}
+          </Badge>}
         />
-        {records.length === 0 ? (
-          <div className="flex items-start gap-3 px-5 py-6">
-            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden="true" />
-            <div>
-              <p className="text-[13px] font-semibold text-ink">No connections on file</p>
-              <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-muted">
-                An integration record is created only after credentials are validated and
-                stored. Because no provider is configured in this environment, no records
-                exist. Connected accounts will show their label, last check time, and any
-                error here.
-              </p>
-            </div>
+
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-3">
+          <div>
+            <p className="text-[12px] font-semibold text-ink">Encrypted at rest</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              Credentials are sealed with AES-256-GCM under{" "}
+              <code>INTEGRATION_ENCRYPTION_KEY</code>. Ciphertext is bound to the workspace
+              and provider, so a copied row cannot be decrypted elsewhere.
+            </p>
           </div>
-        ) : (
-          <ul className="divide-y divide-line">
-            {records.map((record) => (
-              <li key={record.id} className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-[13px] font-semibold text-ink">{record.provider}</p>
-                  <p className="text-[11px] text-muted">
-                    {record.accountLabel ?? "No account label"}
-                  </p>
-                </div>
-                <Badge tone={record.status === "ACTIVE" ? "success" : "neutral"}>
-                  {record.status}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
+          <div>
+            <p className="text-[12px] font-semibold text-ink">Write-only in the UI</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              A saved key is never returned to the browser. The page shows only the
+              provider, account label, and save time.
+            </p>
+          </div>
+          <div>
+            <p className="text-[12px] font-semibold text-ink">Tenant isolation</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              Every read is scoped to the active workspace. Only owners and admins can
+              change credentials, and every save or removal is written to the audit log
+              without the secret.
+            </p>
+          </div>
+        </div>
+
+        {!encryptionReady ? (
+          <div className="flex items-start gap-3 border-t border-line px-5 py-4">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+            <p className="text-[11px] leading-relaxed text-muted">
+              No stored credentials are used while storage is disabled. The app falls back
+              to deployment environment variables, if any.
+            </p>
+          </div>
+        ) : null}
       </Card>
 
       <Card className="p-5">

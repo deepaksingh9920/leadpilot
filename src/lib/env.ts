@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isEncryptionKeyConfigured } from "@/lib/crypto/secret-box";
 import {
   selectLeadSource,
   type LeadSourceSelection,
@@ -19,6 +20,7 @@ function positiveInt(name: string, fallback: number): number {
 
 const aiApiKey = optional("AI_API_KEY");
 const aiModel = optional("AI_MODEL");
+const integrationEncryptionKey = optional("INTEGRATION_ENCRYPTION_KEY");
 
 const leadSourceSelection: LeadSourceSelection = selectLeadSource({
   primary: optional("PRIMARY_LEAD_SOURCE"),
@@ -58,6 +60,9 @@ export const env = {
     optional("GOOGLE_PLACES_API_BASE_URL") ?? "https://places.googleapis.com/v1",
 
   emailConfigured: Boolean(optional("RESEND_API_KEY") && optional("EMAIL_FROM")),
+  resendApiKey: optional("RESEND_API_KEY"),
+  integrationEncryptionKey,
+  integrationEncryptionConfigured: isEncryptionKeyConfigured(integrationEncryptionKey),
   billingProvider: optional("BILLING_PROVIDER")?.toLowerCase() ?? "razorpay",
   razorpayKeyId: optional("RAZORPAY_KEY_ID"),
   razorpayKeySecret: optional("RAZORPAY_KEY_SECRET"),

@@ -1,6 +1,6 @@
 # LeadPilot — Integrations and Environment Reference
 
-Status: Phase 5B enforcement, admin, and security hardening work in progress · Last updated: 2026-11-10
+Status: Phase 5B enforcement, admin, and security hardening work in progress · Last updated: 2026-11-13
 
 Real integrations are required. Provider-dependent features stay disabled until the
 matching keys are configured; there is no production mock mode. Automated tests use
@@ -23,6 +23,7 @@ customer data.
 | Campaign analytics and field verification | Implemented (Phase 4B): manual outcomes and human field checks; no provider webhook |
 | Razorpay subscription billing | Implemented (Phase 5A): hosted checkout, signed/idempotent webhooks, cancel; disabled until keys and webhook secret exist |
 | Platform feature switches | Implemented (Phase 5B): DB-backed signup, CSV-import, and outreach-send switches with audit |
+| Per-workspace provider credentials | Implemented: encrypted at rest, write-only owner/admin UI, deployment env fallback |
 
 `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executor in this build.
 They remain disabled and are not advertised as runnable. Resend webhooks are also not
@@ -41,12 +42,42 @@ Recommended: any OpenAI-compatible chat completions API.
 | `AI_TIMEOUT_MS` | Request timeout (default 30000) |
 | `AI_MAX_OUTPUT_TOKENS` | Output cap per call (default 2000) |
 
+A workspace can save its own key, model, and optional base URL on **Integrations**; the
+workspace values override these defaults for that tenant. Requests still use
+`AI_TIMEOUT_MS` and `AI_MAX_OUTPUT_TOKENS` from the deployment.
+
 The adapter sends `POST {AI_BASE_URL}/chat/completions` with
 `response_format: { type: "json_object" }`. Every response is validated against the
 agent's zod schema. Truncated JSON, non-JSON content, and schema mismatches are treated
 as retryable dependency failures; they never become lead data. Prompts include only the
 workspace record already stored, and instruct the model not to invent contacts, sources,
 or facts.
+
+## 2a. Workspace credentials from the UI
+
+Workspace owners and admins can save their own AI, lead-source, and Resend credentials on
+**Integrations** instead of sharing the deployment's keys. Environment values remain the
+fallback when a workspace has not saved its own.
+
+- **Storage:** the existing `Integration.encryptedCredentials` column, encrypted with
+  AES-256-GCM under `INTEGRATION_ENCRYPTION_KEY`. The authenticated additional data is
+  `${workspaceId}:${provider}`, so a row copied to another workspace or provider fails to
+  decrypt. The key is never stored in the database.
+- **Write-only:** a saved key is never returned to the browser. The page shows only the
+  account label, the save time, and the provider state.
+- **Precedence:** a workspace record overrides env for that provider. An unreadable or
+  tampered record fails closed and does not silently fall back to the deployment key.
+- **Roles and audit:** only `OWNER` and `ADMIN` can save or remove credentials. Each action
+  is rate-limited and audited with the provider and label only — never the secret.
+- **Setup requirement:** saving is disabled until `INTEGRATION_ENCRYPTION_KEY` is at least
+  32 characters. Generate a value with the command in section 8 and set it in the hosting
+  dashboard, then redeploy.
+- **Billing stays deployment-level:** Razorpay verifies the webhook signature before the
+  workspace is known, so `RAZORPAY_*` values cannot be per-workspace. Account emails
+  (verification, reset, invitations) also keep using the deployment sender.
+
+The corresponding key source is exposed as `credentialSource` on the active lead source and
+is reported in the Integrations UI.
 
 ## 3. Lead data sources (required for discovery)
 
@@ -77,6 +108,10 @@ or facts.
 | `GOOGLE_PLACES_API_BASE_URL` | Places base (default `https://places.googleapis.com/v1`) |
 | `APOLLO_TERMS_URL`, `PDL_TERMS_URL`, `GOOGLE_PLACES_TERMS_URL` | Optional terms overrides stored with sourced leads |
 
+A workspace can save one provider key on **Integrations**. That selection wins over the
+deployment default and carries its standard terms URL unless a provider-specific env
+override is in use. Removing it restores the deployment default.
+
 Rules enforced in code:
 
 - Adapters keep only fields the provider actually returned. Missing email or phone stays
@@ -104,6 +139,10 @@ requires the user to confirm they have the right to use the data and records pro
 Resend with a verified sending domain is the implemented adapter. It powers account
 verification, password reset, and approval-gated outreach.
 
+Workspace owners/admins may save a Resend key and sender on **Integrations**. Outreach uses
+the workspace credentials when present; account email (verification, reset, invitations)
+always uses the deployment sender so delivery does not depend on a workspace key.
+
 | Variable | Purpose |
 |---|---|
 | `RESEND_API_KEY` | Resend API key (server only) |
@@ -111,9 +150,9 @@ verification, password reset, and approval-gated outreach.
 | `EMAIL_REPLY_TO` | Optional default reply-to; outreach prefers the workspace sender email |
 | `EMAIL_TIMEOUT_MS` | Request timeout (default 15000) |
 
-When the provider is not configured, the UI says delivery is unavailable. Account email
-cannot be sent, and outreach messages remain `APPROVED` with a `NOT_CONFIGURED` result;
-nothing is simulated.
+When neither the workspace nor the deployment has email credentials, the UI says delivery
+is unavailable. Account email cannot be sent, and outreach messages remain `APPROVED` with
+a `NOT_CONFIGURED` result; nothing is simulated.
 
 ### Outreach safety rules enforced in code
 
@@ -209,7 +248,7 @@ separate invitation provider or webhook.
 | `DATABASE_URL` | Local SQLite file; in production, the Neon **pooled** Postgres URL |
 | `DIRECT_DATABASE_URL` | Production-only Neon **direct** URL used by `prisma migrate` |
 | `AUTH_SECRET` | 32+ byte random value for session signing |
-| `INTEGRATION_ENCRYPTION_KEY` | Reserved; not read by the current build |
+| `INTEGRATION_ENCRYPTION_KEY` | AES-256-GCM key for workspace credentials; 32+ characters (base64url 32-byte, hex 64, or passphrase). Required before the UI can save keys |
 | `WORKER_SECRET` | Bearer/header secret for `POST /api/worker/run` |
 | `CRON_SECRET` | Bearer secret Vercel Cron sends to `GET /api/cron/worker` |
 | `AGENT_RUNTIME_READY` | Operator switch; execution stays off unless it is exactly `true` |
@@ -238,16 +277,21 @@ The Integrations page reports the active lead source and each provider's actual 
 | State | UI | Server behavior |
 |---|---|---|
 | Not configured | "Not configured" badge and required variable names | Agent runs that need it return a provider error |
+| Workspace key saved | "Workspace key" badge with save date and account label | Calls use the decrypted workspace credentials |
+| Server default | "Server default" badge | Calls use the deployment environment values |
+| Stored but unreadable | "Needs attention" with the decryption error | The provider is treated as unconfigured and calls fail closed |
 | Configured but not selected | "Configured" badge, no "Active" badge | Calls are not made for discovery |
 | Active | "Configured" + "Active" | Lead Finder may call it when execution is enabled |
 | Ambiguous or invalid | Warning with the selection error | Discovery fails closed |
 
 ## 11. Setup sequence
 
-1. Add keys to `.env.local` (never paste them into chat).
-2. Set `PRIMARY_LEAD_SOURCE` if more than one lead-source key is present.
+1. Add deployment-level keys to `.env.local` (never paste them into chat), or set
+   `INTEGRATION_ENCRYPTION_KEY` and save provider keys per workspace on **Integrations**.
+2. Set `PRIMARY_LEAD_SOURCE` if more than one lead-source key is present in the environment.
 3. Restart the dev server so the environment is re-read.
-4. Open Integrations and confirm the active source and provider states.
+4. Open Integrations and confirm the active source and provider states. A saved workspace
+   key shows "Workspace key"; otherwise the deployment default shows "Server default".
 5. Before enabling execution, confirm the provider terms permit your prospecting use.
 6. Set `AGENT_RUNTIME_READY=true` only when both the AI provider and lead source are ready.
 7. Queue a Lead Finder run with a small limit, then inspect the run steps and stored leads.

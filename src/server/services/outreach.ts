@@ -4,8 +4,7 @@ import type { Prisma } from "@prisma/client";
 
 import { canApproveOutreach } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
-import { sendEmail } from "@/lib/email/send";
+import { resolveEmailConfig, sendEmail } from "@/lib/email/send";
 import { isFeatureEnabled } from "@/lib/features";
 import {
   buildTemplateDraft,
@@ -604,12 +603,12 @@ export async function sendOutreachMessage(input: {
       message: "Add your company mailing address in Settings before sending.",
     };
   }
-  if (!env.emailConfigured) {
+  const emailConfig = await resolveEmailConfig(input.workspaceId);
+  if (!emailConfig.ok) {
     return {
       ok: false,
-      code: "NOT_CONFIGURED",
-      message:
-        "Email delivery is not configured. Add RESEND_API_KEY and EMAIL_FROM, then retry the send.",
+      code: emailConfig.reason === "not_configured" ? "NOT_CONFIGURED" : "PROVIDER",
+      message: emailConfig.message,
     };
   }
 
@@ -731,6 +730,8 @@ export async function sendOutreachMessage(input: {
       text: preview.text,
       html: preview.html,
       replyTo: profile?.senderEmail ?? undefined,
+      workspaceId: input.workspaceId,
+      config: emailConfig.config,
     });
 
     if (!delivery.ok) {

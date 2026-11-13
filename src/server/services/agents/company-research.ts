@@ -36,6 +36,7 @@ export async function executeCompanyResearch(
     researched = await completeStructured({
       schema: researchOutputSchema,
       messages: researchMessages(groundedLeadPayload(lead)),
+      workspaceId: context.workspaceId,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI research failed";

@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { getProviderCapabilities } from "@/server/services/providers";
 import { getUsageSummary, METRIC_LABELS } from "@/server/services/workspaces";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -40,6 +41,7 @@ export async function getDashboardData(workspaceId: string) {
     leadSourceCount,
     campaignCount,
     pendingReview,
+    capabilities,
   ] = await Promise.all([
     db.lead.count({ where: { workspaceId, deletedAt: null } }),
     db.lead.count({ where: { workspaceId, deletedAt: null, createdAt: { gte: monthStart } } }),
@@ -73,6 +75,7 @@ export async function getDashboardData(workspaceId: string) {
     db.leadSource.count({ where: { workspaceId } }),
     db.campaign.count({ where: { workspaceId } }),
     db.lead.count({ where: { workspaceId, deletedAt: null, status: "NEW" } }),
+    getProviderCapabilities(workspaceId),
   ]);
 
   const dayBuckets = new Map<string, number>();
@@ -119,9 +122,9 @@ export async function getDashboardData(workspaceId: string) {
     })),
     leadSeries,
     environment: {
-      leadSourceConfigured: env.leadSourceConfigured,
-      emailConfigured: env.emailConfigured,
-      aiConfigured: env.aiConfigured,
+      leadSourceConfigured: capabilities.leadSourceConfigured,
+      emailConfigured: capabilities.emailConfigured,
+      aiConfigured: capabilities.aiConfigured,
       billingConfigured: env.billingConfigured,
     },
     metricLabels: METRIC_LABELS,

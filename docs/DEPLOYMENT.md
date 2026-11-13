@@ -110,13 +110,14 @@ in, then change the password immediately.
 | `WORKER_SECRET` | Production | One of the two | Authenticates `POST /api/worker/run` |
 | `CRON_SECRET` | Production | One of the two | Vercel Cron sends it as `Authorization: Bearer …` |
 | `AGENT_RUNTIME_READY` | Production | Yes for jobs | Keep `false` until AI + lead-source keys exist |
-| `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` | Production | For research | OpenAI-compatible model |
-| `PRIMARY_LEAD_SOURCE`, `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` | Production | For discovery | Permitted source; multiple keys require an explicit primary |
-| `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` | Production | For email | Verification, reset, invitations, outreach |
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Production | For billing | Checkout stays disabled unless all three are set |
+| `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` | Production | For research | OpenAI-compatible model; workspaces can override on Integrations |
+| `PRIMARY_LEAD_SOURCE`, `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` | Production | For discovery | Permitted source; multiple keys require an explicit primary; workspaces can override |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` | Production | For email | Verification, reset, invitations, and outreach; workspaces can override outreach delivery |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Production | For billing | Checkout stays disabled unless all three are set. Billing is deployment-level only |
 | `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` | Seed only | First run | Strong temporary superadmin credentials |
 | `SENTRY_DSN`, `LOG_LEVEL` | Production | No | Optional monitoring |
-| `INTEGRATION_ENCRYPTION_KEY`, `RATE_LIMIT_WINDOW_SECONDS` | — | No | Reserved; not read by the current build |
+| `INTEGRATION_ENCRYPTION_KEY` | Production | Yes for UI keys | 32+ character AES-256-GCM key for per-workspace credentials. Without it the forms stay disabled and stored rows fail closed |
+| `RATE_LIMIT_WINDOW_SECONDS` | — | No | Reserved; rate-limit windows are defined in `src/lib/auth/rate-limits.ts` |
 
 Generate secrets with:
 
@@ -126,6 +127,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 Use header-safe characters for `CRON_SECRET` (letters and numbers). Vercel does not allow you
 to read a sensitive value back after saving it, so store it in your own secret manager.
+
+`INTEGRATION_ENCRYPTION_KEY` must be stable for the life of the data: changing it makes every
+previously saved workspace credential unreadable. Save the value in your secret manager
+before adding it to Vercel. Workspace owners/admins can then enter their own AI, lead-source,
+and Resend keys on **Integrations**; the saved values are encrypted and never returned to
+the browser. Add the variable and redeploy first, because Vercel env changes do not apply to
+an existing deployment.
 
 ## 7. Scheduled worker
 
@@ -246,6 +254,9 @@ Run on the production URL with a real account and the provider keys you have:
 - [ ] CSV import: valid rows import, duplicates are reported, invalid rows are listed.
 - [ ] Lead table search is case-insensitive, filters and pagination work.
 - [ ] Agent run with a real lead source and AI key; status moves through the queue.
+- [ ] Integrations: save an AI/lead-source/Resend key as owner or admin, confirm the badge
+  changes to "Workspace key", reload, and confirm the key is never shown again. Remove it
+  and confirm the deployment default returns. A member or viewer sees a read-only page.
 - [ ] Draft creation, approval, and blocked send without a mailing address.
 - [ ] Approval-gated send with Resend; unsubscribe link works; suppression blocks a resend.
 - [ ] Manual outcome logging; opens remain explicitly untracked.
@@ -261,6 +272,8 @@ Run on the production URL with a real account and the provider keys you have:
   to a live database from this workspace.
 - Vercel Cron has not been exercised in a deployed environment.
 - Live email, provider calls, and Razorpay remain blocked on real credentials.
+- Saving workspace credentials from the UI needs `INTEGRATION_ENCRYPTION_KEY` in the Vercel
+  environment; changing that key later makes previously saved rows unreadable.
 - Opens are untracked and provider reply/bounce webhooks are not connected; outcomes are
   manual.
 - `COMPETITOR_RESEARCH`, `EMAIL_OUTREACH`, and `FOLLOW_UP` have no executors and stay

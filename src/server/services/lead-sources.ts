@@ -8,10 +8,12 @@ import type { FetchLike } from "@/lib/providers/http";
 import {
   PROVIDER_LABELS,
   PROVIDER_LICENSE_NOTES,
+  PROVIDER_TERMS_URLS,
   type LeadSearchQuery,
   type LeadSearchResult,
   type LeadSourceProviderId,
 } from "@/lib/providers/types";
+import { readLeadSourceIntegration } from "@/server/services/integrations";
 
 export type ActiveLeadSource = {
   provider: LeadSourceProviderId;
@@ -20,24 +22,25 @@ export type ActiveLeadSource = {
   termsUrl: string;
   licenseNote: string;
   baseUrl: string;
+  /** Where the credential came from; used by the Integrations page. */
+  credentialSource: "workspace" | "server";
 };
 
 export type ActiveLeadSourceResult =
   | { ok: true; source: ActiveLeadSource }
   | { ok: false; message: string };
 
-export function getActiveLeadSource(): ActiveLeadSourceResult {
+function defaultBaseUrl(provider: LeadSourceProviderId): string {
+  if (provider === "apollo") return env.apolloBaseUrl;
+  if (provider === "pdl") return env.pdlBaseUrl;
+  return env.googlePlacesBaseUrl;
+}
+
+function fromEnv(): ActiveLeadSourceResult {
   const selection = env.leadSourceSelection;
   if (!selection.ok) return { ok: false, message: selection.message };
 
   const { provider } = selection.source;
-  const baseUrl =
-    provider === "apollo"
-      ? env.apolloBaseUrl
-      : provider === "pdl"
-        ? env.pdlBaseUrl
-        : env.googlePlacesBaseUrl;
-
   return {
     ok: true,
     source: {
@@ -46,18 +49,51 @@ export function getActiveLeadSource(): ActiveLeadSourceResult {
       apiKey: selection.source.apiKey,
       termsUrl: selection.source.termsUrl,
       licenseNote: PROVIDER_LICENSE_NOTES[provider],
-      baseUrl,
+      baseUrl: defaultBaseUrl(provider),
+      credentialSource: "server",
     },
   };
 }
 
-export function getLeadSourceStatus(): {
+/**
+ * Workspace credentials win over deployment defaults. A stored but unreadable
+ * record fails closed: it does not silently fall back to the operator's key,
+ * because that would send a workspace's searches through someone else's
+ * provider account.
+ */
+export async function getActiveLeadSource(
+  workspaceId?: string,
+): Promise<ActiveLeadSourceResult> {
+  if (workspaceId) {
+    const stored = await readLeadSourceIntegration(workspaceId);
+    if (stored.state === "error") return { ok: false, message: stored.message };
+    if (stored.state === "ok") {
+      const { provider, apiKey, baseUrl } = stored.credentials;
+      return {
+        ok: true,
+        source: {
+          provider,
+          label: PROVIDER_LABELS[provider],
+          apiKey,
+          termsUrl: PROVIDER_TERMS_URLS[provider],
+          licenseNote: PROVIDER_LICENSE_NOTES[provider],
+          baseUrl: baseUrl ?? defaultBaseUrl(provider),
+          credentialSource: "workspace",
+        },
+      };
+    }
+  }
+
+  return fromEnv();
+}
+
+export async function getLeadSourceStatus(workspaceId?: string): Promise<{
   configured: boolean;
   provider: LeadSourceProviderId | null;
   label: string | null;
   message: string | null;
-} {
-  const active = getActiveLeadSource();
+}> {
+  const active = await getActiveLeadSource(workspaceId);
   if (!active.ok) {
     return { configured: false, provider: null, label: null, message: active.message };
   }
@@ -72,13 +108,14 @@ export function getLeadSourceStatus(): {
 export async function searchPrimaryLeadSource(
   query: LeadSearchQuery,
   options?: {
+    workspaceId?: string;
     fetchImpl?: FetchLike;
     signal?: AbortSignal;
     now?: () => Date;
     timeoutMs?: number;
   },
 ): Promise<{ provider: LeadSourceProviderId; label: string; termsUrl: string; result: LeadSearchResult }> {
-  const active = getActiveLeadSource();
+  const active = await getActiveLeadSource(options?.workspaceId);
   if (!active.ok) {
     throw new Error(active.message);
   }

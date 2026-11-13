@@ -30,6 +30,8 @@ export const RATE_LIMITS = {
   inviteRegister: { limit: 5, windowSeconds: 60 * 60 },
   billingCheckout: { limit: 10, windowSeconds: 60 * 60 },
   complianceUpdate: { limit: 20, windowSeconds: 60 * 60 },
+  integrationSave: { limit: 20, windowSeconds: 60 * 60 },
+  integrationRemove: { limit: 20, windowSeconds: 60 * 60 },
   dataExport: { limit: 3, windowSeconds: 60 * 60 },
   retentionCleanup: { limit: 5, windowSeconds: 60 * 60 },
   workspaceDeletion: { limit: 3, windowSeconds: 60 * 60 },

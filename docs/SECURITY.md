@@ -213,13 +213,21 @@ than `GET`. Both call the same tick service, including retention cleanup.
   `CRON_SECRET` by updating the scheduler and app together, then redeploy. Rotate Razorpay
   keys and webhook secret in the provider dashboard, then update both app and webhook
   configuration before the next event.
-- Rotate provider keys (AI, Apollo, PDL, Google Places, Resend) in the provider dashboard,
-  update the environment, redeploy, and confirm the Integrations page reports the new state.
+- Rotate provider keys (AI, Apollo, PDL, Google Places, Resend) in the provider dashboard.
+  For workspace credentials, an owner/admin saves the new key on **Integrations**, which
+  replaces the encrypted row. For deployment defaults, update the environment, redeploy,
+  and confirm the Integrations page reports the new state.
 - Never paste secrets into chat, tickets, logs, or audit metadata. Audit entries record
   actions and identifiers, not credentials.
-- `INTEGRATION_ENCRYPTION_KEY` and `RATE_LIMIT_WINDOW_SECONDS` appear in `.env.example` as
-  reserved placeholders and are not read by the current code; do not rely on them for
-  protection today. `CRON_SECRET` is read by the scheduler endpoint.
+- `INTEGRATION_ENCRYPTION_KEY` protects the per-workspace credentials saved from the UI.
+  Secrets are sealed with AES-256-GCM using a fresh 12-byte IV; the authenticated
+  additional data binds each ciphertext to `${workspaceId}:${provider}`. The key accepts a
+  32-byte base64url value, 64-character hex, or a 32+ character passphrase stretched with
+  scrypt. Only `OWNER` and `ADMIN` can save or remove credentials, and a stored row that
+  cannot be decrypted is treated as unconfigured (fail closed), never replaced by the env
+  default. Rotating this key makes existing rows unreadable until each workspace saves its
+  key again, so back it up before rotating. `RATE_LIMIT_WINDOW_SECONDS` remains a reserved
+  placeholder; windows are defined in code. `CRON_SECRET` is read by the scheduler endpoint.
 
 ## 11. Audit logging
 
@@ -227,7 +235,8 @@ than `GET`. Both call the same tick service, including retention cleanup.
 Auditing failures are logged but never block the user action, so audit is not a
 transactional guarantee. Covered actions include logins, exports, imports, lead deletions,
 field verification, approvals, sends, outcomes, role/team changes, plan and switch changes,
-and superadmin actions. The admin console supports keyword, workspace, action, and date
+and superadmin actions. Integration credential saves and removals are audited with the
+provider and account label only. The admin console supports keyword, workspace, action, and date
 filters with pagination and is read-only.
 
 Audit records are append-only from the application's perspective; there is no edit or delete

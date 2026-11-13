@@ -97,13 +97,21 @@ Everything else in `.env.example` is optional and takes effect only when its fea
 configured:
 
 - `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` — grounded research and qualification. Calls are
-  made only when these are set and `AGENT_RUNTIME_READY=true`.
+  made only when these are set and `AGENT_RUNTIME_READY=true`. Workspace owners/admins can
+  instead save their own AI key and model on **Integrations**.
 - `APOLLO_API_KEY`, `PDL_API_KEY`, `GOOGLE_PLACES_API_KEY` — permitted lead sources.
   `PRIMARY_LEAD_SOURCE` picks one explicitly; with no explicit choice, exactly one
-  configured key is used, and multiple keys fail closed. CSV import always works.
+  configured key is used, and multiple keys fail closed. CSV import always works. A
+  workspace can save its own lead-source key on **Integrations**, which overrides these.
 - `RESEND_API_KEY`, `EMAIL_FROM` — verification, reset, and outreach delivery. Without
   them the UI reports delivery is unconfigured and outreach messages stay approved; nothing
-  is simulated. Sends also require a workspace mailing address in **Settings**.
+  is simulated. Sends also require a workspace mailing address in **Settings**. A workspace
+  can save its own Resend key and sender on **Integrations** for outreach; account email
+  keeps using the deployment sender.
+- `INTEGRATION_ENCRYPTION_KEY` — 32+ character key that encrypts workspace credentials with
+  AES-256-GCM. It is required before **Integrations** can save a key; without it the forms
+  stay disabled and any stored row fails closed. Keep it stable: rotating it makes existing
+  saved credentials unreadable until they are entered again.
 - `EMAIL_REPLY_TO` — optional default reply-to; outreach prefers the workspace sender
   email when one is set.
 - `BILLING_PROVIDER`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
@@ -197,8 +205,9 @@ profile used as ground truth for later agent work and unlocks the dashboard on c
 chart backed by real queries, searchable/filterable/sortable leads, CSV import with column
 mapping and row-level reports, lead detail with evidence and activity, campaign creation and
 detail with an outreach pipeline, agent catalog and detail with runtime gating, run detail
-with step logs, integration status, settings (profile, password, team, usage, suppression
-list), and a superadmin console for plans, limits, agent catalog, and platform audit.
+with step logs, integration status and encrypted per-workspace provider credentials,
+settings (profile, password, team, usage, suppression list), and a superadmin console for
+plans, limits, agent catalog, and platform audit.
 
 **Lead data** — discovery calls the configured provider (Apollo, People Data Labs, or
 Google Places) and stores only fields the provider returned, with provider record ID,

@@ -73,7 +73,7 @@ export default async function AgentDetailPage({
   ]);
 
   const schema = parseAgentInputSchema(agent.inputSchema);
-  const runtime = getAgentStatus(agent.key);
+  const runtime = await getAgentStatus(agent.key, context.workspace.id);
   const enabled = Boolean(config?.enabled);
   const canManage = roleAtLeast(context.role, "ADMIN");
   const canRun = roleAtLeast(context.role, "MEMBER");

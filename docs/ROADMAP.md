@@ -1,6 +1,6 @@
 # LeadPilot — Development Roadmap
 
-Status: Phase 6 verification and hardening in progress — health/readiness probe, the production Postgres/Vercel Cron deployment path, and production-mode/search-index QA are complete. Phase 5B enforcement, admin, security, compliance, ownership-transfer, and account-closure work is complete except workspace-count enforcement · Last updated: 2026-11-12
+Status: Phase 6 verification and hardening in progress - health/readiness probe, the production Postgres/Vercel Cron deployment path, and production-mode/search-index QA are complete. Phase 5B enforcement, admin, security, compliance, ownership-transfer, account-closure, and per-workspace credential work is complete except workspace-count enforcement · Last updated: 2026-11-13
 
 ## Working rules
 
@@ -586,6 +586,33 @@ Residual risk:
   tombstone identity are retained for security and legal obligations.
 - There is no account-level billing model, so closure never needs to reconcile a subscription
   owned by the person rather than the workspace.
+
+### Per-workspace provider credentials (complete, 2026-11-13)
+
+Build (done):
+1. `src/lib/crypto/secret-box.ts`: AES-256-GCM envelope with a fresh IV, workspace/provider
+   AAD, versioned payload, and base64url/hex/passphrase key support.
+2. `src/server/services/integrations.ts`: encrypted save/read/remove, fail-closed decryption,
+   account labels, and audit entries without secrets.
+3. `src/server/actions/integrations.ts`: owner/admin-only save and removal with validation,
+   rate limits, and revalidation. `IntegrationCredentialsForm` and `RemoveIntegrationButton`
+   provide a write-only UI on `/integrations`.
+4. Workspace-first resolution in AI, lead-source, email, provider capability, job queue,
+   agent executors, dashboard, and the outreach message page. Environment values remain the
+   fallback; a defective stored row never falls back silently.
+5. Billing stays deployment-level because Razorpay verifies the webhook before the workspace
+   is known. Account email keeps using the deployment sender.
+
+Verified:
+- `secret-box.test.ts` covers round trip, IV freshness, tamper/wrong-key/wrong-context
+  refusal, malformed payloads, and short-key refusal.
+- `integrations.integration.test.ts` covers encrypted-at-rest storage (no plaintext or model
+  label in the ciphertext), workspace-over-env precedence, tenant isolation, copied-row
+  refusal, audit entries without secrets, fail-closed corruption, and env restoration after
+  removal. `integrations-unconfigured.integration.test.ts` proves saving is refused and
+  stored rows fail closed when the key is absent.
+- `npm test` (45 files / 328 tests), `npm run typecheck`, `npm run lint`, and `npm run build`
+  pass.
 
 Remaining Phase 5B:
 1. Workspace-count enforcement is blocked: there is no account-level billing model or an

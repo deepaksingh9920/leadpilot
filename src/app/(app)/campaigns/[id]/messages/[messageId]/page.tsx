@@ -20,7 +20,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader } from "@/components/ui/card";
 import { canApproveOutreach, requireWorkspace, roleAtLeast } from "@/lib/auth/workspace";
-import { env } from "@/lib/env";
+import { resolveEmailConfig } from "@/lib/email/send";
 import { formatDate } from "@/lib/utils";
 import {
   getOutreachMessageDetail,
@@ -69,6 +69,7 @@ export default async function OutreachMessagePage({
   const statusLabel = OUTREACH_STATUS_LABELS[message.status] ?? message.status;
   const emailVerification = message.lead.verifications[0] ?? null;
   const canRecordOutcome = canEdit && ["SENT", "BOUNCED"].includes(message.status);
+  const emailDelivery = await resolveEmailConfig(context.workspace.id);
   const outcomeOptions = OUTREACH_OUTCOMES.filter((outcome) => {
     if (outcome === "REPLIED") return !message.repliedAt && message.status !== "BOUNCED";
     if (outcome === "MEETING") return !message.meetingAt && message.status !== "BOUNCED";
@@ -134,10 +135,11 @@ export default async function OutreachMessagePage({
         </Alert>
       ) : null}
 
-      {!env.emailConfigured ? (
+      {!emailDelivery.ok ? (
         <Alert tone="info" title="Email delivery is not configured">
-          Approvals and drafts work now. Sending requires RESEND_API_KEY and EMAIL_FROM. The message
-          stays approved until delivery is configured.
+          Approvals and drafts work now. Sending requires a Resend key and sender on the
+          Integrations page, or RESEND_API_KEY and EMAIL_FROM in the deployment environment.
+          The message stays approved until delivery is configured.
         </Alert>
       ) : null}
 

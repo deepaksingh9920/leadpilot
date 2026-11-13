@@ -1,43 +1,103 @@
 import "server-only";
 
 import { env } from "@/lib/env";
+import { readEmailIntegration } from "@/server/services/integrations";
 
 type SendEmailInput = {
   to: string;
   subject: string;
   html: string;
   text: string;
-  /** Defaults to EMAIL_FROM. Must be on a verified sending domain. */
+  /** Defaults to EMAIL_FROM or the workspace's stored sender. */
   from?: string;
-  /** Defaults to EMAIL_REPLY_TO. */
+  /** Defaults to the stored reply-to or EMAIL_REPLY_TO. */
+  replyTo?: string;
+  /** Uses the workspace's stored Resend credentials when present. */
+  workspaceId?: string;
+  /** Reuse an already-resolved configuration to avoid a second database read. */
+  config?: EmailConfig;
+};
+
+export type EmailConfig = {
+  apiKey: string;
+  from: string;
   replyTo?: string;
 };
+
+export type EmailConfigResult =
+  | { ok: true; config: EmailConfig; source: "workspace" | "server" }
+  | { ok: false; reason: "not_configured" | "error"; message: string };
+
+/** Workspace credentials win; a broken stored record fails closed. */
+export async function resolveEmailConfig(workspaceId?: string): Promise<EmailConfigResult> {
+  if (workspaceId) {
+    const stored = await readEmailIntegration(workspaceId);
+    if (stored.state === "error") {
+      return { ok: false, reason: "error", message: stored.message };
+    }
+    if (stored.state === "ok") {
+      return {
+        ok: true,
+        source: "workspace",
+        config: {
+          apiKey: stored.credentials.apiKey,
+          from: stored.credentials.from,
+          replyTo: stored.credentials.replyTo,
+        },
+      };
+    }
+  }
+
+  if (!env.emailConfigured || !env.resendApiKey || !env.emailFrom) {
+    return {
+      ok: false,
+      reason: "not_configured",
+      message:
+        "Email delivery is not configured. Add a Resend key and sender on the Integrations page, or set RESEND_API_KEY and EMAIL_FROM on the server.",
+    };
+  }
+
+  return {
+    ok: true,
+    source: "server",
+    config: {
+      apiKey: env.resendApiKey,
+      from: env.emailFrom,
+      replyTo: env.emailReplyTo,
+    },
+  };
+}
 
 export type EmailResult =
   | { ok: true; providerMessageId?: string }
   | { ok: false; reason: "not_configured" | "provider_error"; message: string };
 
 export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
-  if (!env.emailConfigured) {
+  const resolved = input.config
+    ? ({ ok: true, config: input.config } as const)
+    : await resolveEmailConfig(input.workspaceId);
+
+  if (!resolved.ok) {
     return {
       ok: false,
-      reason: "not_configured",
-      message:
-        "Email delivery is not configured. Add RESEND_API_KEY and EMAIL_FROM to enable email.",
+      reason: resolved.reason === "not_configured" ? "not_configured" : "provider_error",
+      message: resolved.message,
     };
   }
+
+  const config = resolved.config;
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: input.from ?? env.emailFrom,
+        from: input.from ?? config.from,
         to: [input.to],
-        reply_to: input.replyTo ?? env.emailReplyTo,
+        reply_to: input.replyTo ?? config.replyTo,
         subject: input.subject,
         html: input.html,
         text: input.text,

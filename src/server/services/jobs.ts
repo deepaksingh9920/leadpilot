@@ -67,7 +67,7 @@ export async function createJob(input: {
     };
   }
 
-  const status = getAgentStatus(agent.key);
+  const status = await getAgentStatus(agent.key, input.workspaceId);
   if (!status.runnable) {
     return { ok: false, code: "PROVIDER", message: status.message };
   }

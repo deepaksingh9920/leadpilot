@@ -28,5 +28,7 @@ export const canManageBilling = (role: string | null | undefined) =>
   roleAtLeast(role, "OWNER");
 export const canManageTeam = (role: string | null | undefined) =>
   roleAtLeast(role, "ADMIN");
+export const canManageIntegrations = (role: string | null | undefined) =>
+  roleAtLeast(role, "ADMIN");
 export const canExportLeads = (role: string | null | undefined) =>
   roleAtLeast(role, "MEMBER");

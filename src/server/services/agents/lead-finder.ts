@@ -35,7 +35,7 @@ function readLimit(value: unknown): number {
 export async function executeLeadFinder(
   context: JobExecutionContext,
 ): Promise<Record<string, unknown>> {
-  const active = getActiveLeadSource();
+  const active = await getActiveLeadSource(context.workspaceId);
   if (!active.ok) throw new PermanentJobError(active.message);
 
   const profile = await db.businessProfile.findUnique({
@@ -67,7 +67,7 @@ export async function executeLeadFinder(
   await context.step("search-source", "RUNNING", { limit: query.limit });
   let search: Awaited<ReturnType<typeof searchPrimaryLeadSource>>;
   try {
-    search = await searchPrimaryLeadSource(query);
+    search = await searchPrimaryLeadSource(query, { workspaceId: context.workspaceId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "provider search failed";
     await context.step("search-source", "FAILED", { message: message.slice(0, 500) });

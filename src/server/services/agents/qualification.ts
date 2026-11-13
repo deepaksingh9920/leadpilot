@@ -79,6 +79,7 @@ export async function executeLeadQualification(
       const result = await completeStructured({
         schema: qualificationOutputSchema,
         messages: qualificationMessages(groundedLeadPayload(lead)),
+        workspaceId: context.workspaceId,
       });
       evaluations.push({ lead, output: result.data, model: result.model });
     } catch (error) {
