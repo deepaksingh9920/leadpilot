@@ -13,6 +13,7 @@ const unconfigured: HealthConfig = {
   billingConfigured: false,
   billingWebhooksConfigured: false,
   workerConfigured: false,
+  credentialStorageConfigured: false,
   agentRuntimeReady: false,
 };
 
@@ -23,6 +24,7 @@ const fullyConfigured: HealthConfig = {
   billingConfigured: true,
   billingWebhooksConfigured: true,
   workerConfigured: true,
+  credentialStorageConfigured: true,
   agentRuntimeReady: true,
 };
 
@@ -64,6 +66,7 @@ describe("health probe", () => {
       billing: "not_configured",
       billingWebhooks: "not_configured",
       worker: "not_configured",
+      credentialStorage: "not_configured",
       agentRuntime: "disabled",
     });
     expect(error).toHaveBeenCalled();
@@ -79,6 +82,7 @@ describe("health probe", () => {
       billing: "configured",
       billingWebhooks: "configured",
       worker: "configured",
+      credentialStorage: "configured",
       agentRuntime: "ready",
     });
 

@@ -93,8 +93,9 @@ in, then change the password immediately.
    database/branch).
 3. Deploy. The first deploy can succeed before the database is migrated because every page
    and route is dynamic; `/api/health` will report `503` until the database is reachable.
-4. **[verify]** Open `/api/health`. It must return `200` with `database: "ok"`, and
-   `providers.worker: "configured"` once `WORKER_SECRET` or `CRON_SECRET` is set.
+4. **[verify]** Open `/api/health`. It must return `200` with `database: "ok"`,
+   `providers.worker: "configured"` once `WORKER_SECRET` or `CRON_SECRET` is set, and
+   `providers.credentialStorage: "configured"` once `INTEGRATION_ENCRYPTION_KEY` is set.
 5. **[verify]** Sign in with the bootstrap admin, confirm `/admin` loads, and change the
    password. Restrict or rotate the bootstrap credentials afterwards.
 
@@ -263,7 +264,8 @@ Run on the production URL with a real account and the provider keys you have:
 - [ ] Settings: retention window, approval policy, DSAR export, ownership transfer.
 - [ ] Admin: plan assignment, feature switches, audit search/filter/pagination.
 - [ ] Razorpay test checkout and verified webhook (when test keys exist).
-- [ ] `/api/health` is `200`; cron runs are visible; retention cleanup is reported.
+- [ ] `/api/health` is `200`; `providers.credentialStorage` is `configured` after setting
+  `INTEGRATION_ENCRYPTION_KEY`; cron runs are visible; retention cleanup is reported.
 - [ ] Mobile-width spot check at 390px (full mobile QA remains outstanding).
 
 ## 14. Known gaps at launch

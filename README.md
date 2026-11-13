@@ -133,9 +133,9 @@ falls back to demo data.
 
 `GET /api/health` is an unauthenticated readiness probe for load balancers and uptime
 monitors. It returns overall status, database reachability and latency, and coarse provider
-states (`configured` / `not_configured`, plus `ready` / `disabled` for the agent runtime). It
-never returns keys, URLs, or connection strings, sends `no-store`, and responds `503` when
-the database cannot be reached.
+states (`configured` / `not_configured`, plus `ready` / `disabled` for the agent runtime) and
+whether workspace credential storage is configured. It never returns keys, URLs, or
+connection strings, sends `no-store`, and responds `503` when the database cannot be reached.
 
 ### Seeded data
 

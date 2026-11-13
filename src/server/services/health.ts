@@ -19,6 +19,8 @@ export type ProviderHealth = {
   billing: ProviderStatus;
   billingWebhooks: ProviderStatus;
   worker: ProviderStatus;
+  /** Whether INTEGRATION_ENCRYPTION_KEY is present for workspace credentials. */
+  credentialStorage: ProviderStatus;
   agentRuntime: "ready" | "disabled";
 };
 
@@ -29,6 +31,7 @@ export type HealthConfig = {
   billingConfigured: boolean;
   billingWebhooksConfigured: boolean;
   workerConfigured: boolean;
+  credentialStorageConfigured: boolean;
   agentRuntimeReady: boolean;
 };
 
@@ -50,6 +53,7 @@ export const healthConfigFromEnv: HealthConfig = {
   // Either trigger can drain the queue: Vercel Cron (CRON_SECRET) or the
   // authenticated POST endpoint (WORKER_SECRET).
   workerConfigured: Boolean(env.workerSecret || env.cronSecret),
+  credentialStorageConfigured: env.integrationEncryptionConfigured,
   agentRuntimeReady: env.agentRuntimeReady,
 };
 
@@ -68,6 +72,7 @@ export function describeProviders(config: HealthConfig): ProviderHealth {
     billing: status(config.billingConfigured),
     billingWebhooks: status(config.billingWebhooksConfigured),
     worker: status(config.workerConfigured),
+    credentialStorage: status(config.credentialStorageConfigured),
     agentRuntime: config.agentRuntimeReady ? "ready" : "disabled",
   };
 }
